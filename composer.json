@@ -1,0 +1,38 @@
+{
+    "name": "componenta/cqrs-policy",
+    "description": "Policy middleware integration for Componenta CQRS",
+    "type": "library",
+    "license": "MIT",
+    "require": {
+        "php": ">=8.4",
+        "componenta/config": "^1.0",
+        "componenta/cqrs": "^1.0",
+        "componenta/policy": "^1.0",
+        "psr/container": "^2.0"
+    },
+    "require-dev": {
+        "pestphp/pest": "^4.0",
+        "phpstan/phpstan": "^2.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Componenta\\CQRS\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Componenta\\CQRS\\Tests\\": "tests/"
+        }
+    },
+    "config": {
+        "sort-packages": true
+    },
+    "minimum-stability": "stable",
+    "extra": {
+        "componenta": {
+            "config-providers": [
+                "Componenta\\CQRS\\Policy\\ConfigProvider"
+            ]
+        }
+    }
+}
