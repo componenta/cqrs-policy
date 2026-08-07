@@ -12,7 +12,8 @@ use Componenta\CQRS\Tests\Fixture\FakeContainer;
 use Componenta\CQRS\Tests\Fixture\FakeQuery;
 use Componenta\Policy\Exception\AccessDeniedException;
 use Componenta\Policy\MissingPolicyBehavior;
-use Componenta\Policy\Policies\AlwaysPolicy;
+use Componenta\Policy\Policies\Allow;
+use Componenta\Policy\Policies\Deny;
 use Componenta\Policy\PolicyEnforcer;
 use Componenta\Policy\Provider\ArrayPolicyProvider;
 
@@ -27,7 +28,7 @@ it('extracts actor from ActorAwareInterface query and invokes next on allow', fu
     $actor = new FakeActor(42);
     $query = new FakeActorAwareQuery($actor);
 
-    $enforcer = makeEnforcer([FakeActorAwareQuery::class => AlwaysPolicy::allow()]);
+    $enforcer = makeEnforcer([FakeActorAwareQuery::class => new Allow()]);
     $middleware = new PolicyMiddleware($enforcer);
 
     $called = false;
@@ -44,7 +45,7 @@ it('falls back to ActorProvider when query is not ActorAware', function () {
     $actor = new FakeActor(1);
     $query = new FakeQuery();
 
-    $enforcer = makeEnforcer([FakeQuery::class => AlwaysPolicy::allow()]);
+    $enforcer = makeEnforcer([FakeQuery::class => new Allow()]);
     $middleware = new PolicyMiddleware($enforcer, new FakeActorProvider($actor));
 
     $result = $middleware->handle($query, new Context(), static fn() => 'ok');
@@ -53,7 +54,7 @@ it('falls back to ActorProvider when query is not ActorAware', function () {
 });
 
 it('throws AuthenticationRequiredException when ActorProvider returns null', function () {
-    $enforcer = makeEnforcer([FakeQuery::class => AlwaysPolicy::allow()]);
+    $enforcer = makeEnforcer([FakeQuery::class => new Allow()]);
     $middleware = new PolicyMiddleware($enforcer, new FakeActorProvider(null));
 
     expect(fn() => $middleware->handle(new FakeQuery(), new Context(), static fn() => 'ok'))
@@ -61,7 +62,7 @@ it('throws AuthenticationRequiredException when ActorProvider returns null', fun
 });
 
 it('throws AuthenticationRequiredException when query is not ActorAware and no provider is configured', function () {
-    $enforcer = makeEnforcer([FakeQuery::class => AlwaysPolicy::allow()]);
+    $enforcer = makeEnforcer([FakeQuery::class => new Allow()]);
     $middleware = new PolicyMiddleware($enforcer);
 
     expect(fn() => $middleware->handle(new FakeQuery(), new Context(), static fn() => 'ok'))
@@ -70,7 +71,7 @@ it('throws AuthenticationRequiredException when query is not ActorAware and no p
 
 it('propagates AccessDeniedException when the enforcer denies', function () {
     $query = new FakeActorAwareQuery(new FakeActor(1));
-    $enforcer = makeEnforcer([FakeActorAwareQuery::class => AlwaysPolicy::refused('nope')]);
+    $enforcer = makeEnforcer([FakeActorAwareQuery::class => new Deny('nope')]);
     $middleware = new PolicyMiddleware($enforcer);
 
     $called = false;
@@ -105,7 +106,7 @@ it('skips the policy check entirely when ATTR_SKIP_POLICY is set in context', fu
 
 it('ATTR_SKIP_POLICY also bypasses an otherwise-denying policy', function () {
     $query = new FakeActorAwareQuery(new FakeActor(1));
-    $enforcer = makeEnforcer([FakeActorAwareQuery::class => AlwaysPolicy::refused('no')]);
+    $enforcer = makeEnforcer([FakeActorAwareQuery::class => new Deny('no')]);
     $middleware = new PolicyMiddleware($enforcer);
 
     $result = $middleware->handle(
@@ -140,7 +141,7 @@ it('ATTR_ACTOR overrides the actor from query/provider', function () {
 
 it('throws when ATTR_ACTOR carries a non-object value', function () {
     $query = new FakeActorAwareQuery(new FakeActor(1));
-    $enforcer = makeEnforcer([FakeActorAwareQuery::class => AlwaysPolicy::allow()]);
+    $enforcer = makeEnforcer([FakeActorAwareQuery::class => new Allow()]);
     $middleware = new PolicyMiddleware($enforcer);
 
     expect(fn() => $middleware->handle($query, new Context([PolicyMiddleware::ATTR_ACTOR => 'not-an-object']), static fn() => 'ok'))

@@ -6,8 +6,8 @@
     "require": {
         "php": ">=8.4",
         "componenta/config": "^1.0",
-        "componenta/cqrs": "^1.0",
-        "componenta/policy": "^1.0",
+        "componenta/cqrs": "^2.0@dev",
+        "componenta/policy": "^2.0@dev",
         "psr/container": "^2.0"
     },
     "require-dev": {
@@ -25,14 +25,21 @@
         }
     },
     "config": {
-        "sort-packages": true
+        "sort-packages": true,
+        "allow-plugins": {
+            "pestphp/pest-plugin": true
+        }
     },
-    "minimum-stability": "stable",
+    "minimum-stability": "dev",
     "extra": {
         "componenta": {
             "config-providers": [
                 "Componenta\\CQRS\\Policy\\ConfigProvider"
             ]
         }
+    },
+    "prefer-stable": true,
+    "scripts": {
+        "test": "@php vendor/bin/pest"
     }
 }
