@@ -15,7 +15,6 @@ use Componenta\Policy\Actor\ActorInterface;
 use Componenta\Policy\Context\ContextInterface;
 use Componenta\Policy\Exception\DenyReason;
 use Componenta\Policy\MissingPolicyBehavior;
-use Componenta\Policy\Policies\AlwaysPolicy;
 use Componenta\Policy\PolicyEnforcer;
 use Componenta\Policy\PolicyInterface;
 use Componenta\Policy\Provider\ArrayPolicyProvider;
