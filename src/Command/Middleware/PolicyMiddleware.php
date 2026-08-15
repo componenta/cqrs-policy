@@ -13,6 +13,7 @@ use Componenta\Policy\Actor\ActorAwareInterface;
 use Componenta\Policy\Actor\ActorProviderInterface;
 use Componenta\Policy\Context\ContextInterface;
 use Componenta\Policy\PolicyEnforcer;
+use InvalidArgumentException;
 
 /**
  * Middleware that enforces policy checks on commands.
@@ -162,17 +163,41 @@ final readonly class PolicyMiddleware implements MiddlewareInterface
         $context = $operation->attributes[self::ATTR_CONTEXT] ?? [];
 
         if (is_array($context)) {
+            $context = self::normalizeArrayContext($context);
             $context[self::ATTR_COMMAND] = $operation->command;
             $context[self::ATTR_OPERATION] = $operation;
-        }
-
-        elseif ($context instanceof ContextInterface) {
+        } elseif ($context instanceof ContextInterface) {
             $context = $context->withAttributes([
                 self::ATTR_COMMAND => $operation->command,
                 self::ATTR_OPERATION => $operation,
             ]);
+        } else {
+            throw new InvalidArgumentException(sprintf(
+                'Policy context operation attribute must be an array or %s; got %s.',
+                ContextInterface::class,
+                get_debug_type($context),
+            ));
         }
 
         return $context;
+    }
+
+    /**
+     * @param array<array-key, mixed> $context
+     * @return array<string, mixed>
+     */
+    private static function normalizeArrayContext(array $context): array
+    {
+        $normalized = [];
+
+        foreach ($context as $key => $value) {
+            if (!is_string($key)) {
+                throw new InvalidArgumentException('Policy context keys must be strings.');
+            }
+
+            $normalized[$key] = $value;
+        }
+
+        return $normalized;
     }
 }

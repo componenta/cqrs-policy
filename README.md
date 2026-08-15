@@ -23,4 +23,8 @@ The package keeps the middleware FQCNs stable:
 - `Componenta\CQRS\Command\Middleware\PolicyMiddleware`
 - `Componenta\CQRS\Query\Middleware\PolicyMiddleware`
 
-Use `#[Allow]` from `componenta/policy` for public commands and queries. `ATTR_SKIP_POLICY` is a technical flag for cases where authorization already happened earlier, for example worker re-dispatch.
+Use `#[Allow]` from `componenta/policy` for public commands and queries. Place
+policy before transport when an asynchronous command must be authorized before
+enqueue. The transport worker does not set `ATTR_SKIP_POLICY` automatically.
+Set that technical flag explicitly only when authorization already completed at
+a trusted pre-enqueue boundary; middleware order alone is not an outbox.

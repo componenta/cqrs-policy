@@ -129,3 +129,16 @@ it('adds command and operation to array policy context', function () {
         ->and($capturedContext?->getAttribute(PolicyMiddleware::ATTR_COMMAND))->toBe($command)
         ->and($capturedContext?->getAttribute(PolicyMiddleware::ATTR_OPERATION))->toBe($operation);
 });
+
+it('rejects an invalid command policy context value', function (): void {
+    $command = new CommandPolicyActorAwareCommand(new FakeActor(1));
+    $middleware = new PolicyMiddleware(makeCommandPolicyEnforcer([
+        CommandPolicyActorAwareCommand::class => new Componenta\Policy\Policies\Allow(),
+    ]));
+    $operation = Operation::create($command, [
+        PolicyMiddleware::ATTR_CONTEXT => 'invalid',
+    ]);
+
+    expect(fn() => $middleware->execute($operation, commandPolicyTerminal()))
+        ->toThrow(InvalidArgumentException::class, 'must be an array');
+});

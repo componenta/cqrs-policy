@@ -12,6 +12,7 @@ use Componenta\Policy\Actor\ActorAwareInterface;
 use Componenta\Policy\Actor\ActorProviderInterface;
 use Componenta\Policy\Context\ContextInterface as PolicyContextInterface;
 use Componenta\Policy\PolicyEnforcer;
+use InvalidArgumentException;
 
 /**
  * Middleware that enforces policy checks on queries.
@@ -165,11 +166,39 @@ final readonly class PolicyMiddleware implements MiddlewareInterface
         }
 
         if (is_array($policyContext)) {
+            $policyContext = self::normalizeArrayContext($policyContext);
             $policyContext[self::ATTR_QUERY] = $query;
 
             return $policyContext;
         }
 
+        if ($policyContext !== null) {
+            throw new InvalidArgumentException(sprintf(
+                'Query policy context must be an array or %s; got %s.',
+                PolicyContextInterface::class,
+                get_debug_type($policyContext),
+            ));
+        }
+
         return [self::ATTR_QUERY => $query];
+    }
+
+    /**
+     * @param array<array-key, mixed> $context
+     * @return array<string, mixed>
+     */
+    private static function normalizeArrayContext(array $context): array
+    {
+        $normalized = [];
+
+        foreach ($context as $key => $value) {
+            if (!is_string($key)) {
+                throw new InvalidArgumentException('Policy context keys must be strings.');
+            }
+
+            $normalized[$key] = $value;
+        }
+
+        return $normalized;
     }
 }

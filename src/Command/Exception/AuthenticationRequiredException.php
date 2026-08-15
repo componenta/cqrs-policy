@@ -7,9 +7,6 @@ namespace Componenta\CQRS\Command\Exception;
 use RuntimeException;
 
 /**
- * Thrown when an operation requires authentication but no actor is available.
- */
-/**
  * Thrown when an action requires authentication but no actor is available.
  */
 final class AuthenticationRequiredException extends RuntimeException

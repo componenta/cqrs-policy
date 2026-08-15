@@ -168,3 +168,16 @@ it('passes the query into the policy context under ATTR_QUERY', function () {
 
     expect($capturingPolicy->context?->getAttribute(PolicyMiddleware::ATTR_QUERY))->toBe($query);
 });
+
+it('rejects an invalid query policy context value', function (): void {
+    $query = new FakeActorAwareQuery(new FakeActor(1));
+    $middleware = new PolicyMiddleware(makeEnforcer([
+        FakeActorAwareQuery::class => new Allow(),
+    ]));
+    $context = new Context([
+        PolicyMiddleware::ATTR_POLICY_CONTEXT => 'invalid',
+    ]);
+
+    expect(fn() => $middleware->handle($query, $context, static fn() => 'ok'))
+        ->toThrow(InvalidArgumentException::class, 'must be an array');
+});
