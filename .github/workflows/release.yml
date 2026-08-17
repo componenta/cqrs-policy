@@ -93,6 +93,8 @@ jobs:
         run: >-
           composer config --json repositories.componenta-policy
           '{"type":"path","url":".ci/policy","options":{"versions":{"componenta/policy":"2.0.0"}}}'
+      - name: Remove development-only dependencies from core verification manifest
+        run: composer remove --dev --no-update componenta/cqrs-transport pestphp/pest phpstan/phpstan
       - name: Install production dependencies only
         shell: bash
         env:
