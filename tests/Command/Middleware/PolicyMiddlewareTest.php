@@ -2,7 +2,6 @@
 
 declare(strict_types=1);
 
-use Componenta\CQRS\Command\Exception\AuthenticationRequiredException;
 use Componenta\CQRS\Command\Middleware\OperationHandlerInterface;
 use Componenta\CQRS\Command\Middleware\PolicyMiddleware;
 use Componenta\CQRS\Command\Operation;
@@ -12,6 +11,7 @@ use Componenta\CQRS\Tests\Fixture\FakeActor;
 use Componenta\CQRS\Tests\Fixture\FakeContainer;
 use Componenta\Policy\Actor\ActorAwareInterface;
 use Componenta\Policy\Actor\ActorInterface;
+use Componenta\Policy\Actor\Guest;
 use Componenta\Policy\Context\ContextInterface;
 use Componenta\Policy\Exception\DenyReason;
 use Componenta\Policy\MissingPolicyBehavior;
@@ -51,7 +51,7 @@ function commandPolicyTerminal(): OperationHandlerInterface
     };
 }
 
-it('skips command policy check when ATTR_SKIP_POLICY is true', function () {
+it('skips command policy check when ATTR_SKIP_POLICY is true', function (): void {
     $middleware = new PolicyMiddleware(makeCommandPolicyEnforcer([]));
     $operation = Operation::create(new CommandPolicyPlainCommand(), [
         PolicyMiddleware::ATTR_SKIP_POLICY => true,
@@ -62,19 +62,9 @@ it('skips command policy check when ATTR_SKIP_POLICY is true', function () {
     expect($result->result?->value)->toBe('handled');
 });
 
-it('does not skip command policy check when ATTR_SKIP_POLICY is false', function () {
-    $middleware = new PolicyMiddleware(makeCommandPolicyEnforcer([]));
-    $operation = Operation::create(new CommandPolicyPlainCommand(), [
-        PolicyMiddleware::ATTR_SKIP_POLICY => false,
-    ]);
-
-    expect(fn () => $middleware->execute($operation, commandPolicyTerminal()))
-        ->toThrow(AuthenticationRequiredException::class);
-});
-
-it('uses ATTR_ACTOR before the command actor', function () {
+it('uses only the actor explicitly carried by an actor-aware command', function (): void {
     $commandActor = new FakeActor(1);
-    $overrideActor = new FakeActor(2);
+    $contextActor = new FakeActor(2);
     $capturedActor = null;
 
     $policy = new class($capturedActor) implements PolicyInterface {
@@ -91,16 +81,45 @@ it('uses ATTR_ACTOR before the command actor', function () {
     $middleware = new PolicyMiddleware(makeCommandPolicyEnforcer([
         CommandPolicyActorAwareCommand::class => $policy,
     ]));
-    $operation = Operation::create(new CommandPolicyActorAwareCommand($commandActor), [
-        PolicyMiddleware::ATTR_ACTOR => $overrideActor,
-    ]);
+    $operation = Operation::create(
+        new CommandPolicyActorAwareCommand($commandActor),
+        ['__actor' => $contextActor],
+    );
 
     $middleware->execute($operation, commandPolicyTerminal());
 
-    expect($capturedActor)->toBe($overrideActor);
+    expect($capturedActor)->toBe($commandActor);
 });
 
-it('adds command and operation to array policy context', function () {
+it('treats a non-actor-aware command as anonymous and ignores actor-shaped attributes', function (): void {
+    $contextActor = new FakeActor(2);
+    $capturedActor = null;
+
+    $policy = new class($capturedActor) implements PolicyInterface {
+        public function __construct(public ?object &$capturedActor) {}
+
+        public function enforce(object $actor, ContextInterface $context): true|DenyReason
+        {
+            $this->capturedActor = $actor;
+
+            return true;
+        }
+    };
+
+    $middleware = new PolicyMiddleware(makeCommandPolicyEnforcer([
+        CommandPolicyPlainCommand::class => $policy,
+    ]));
+    $operation = Operation::create(
+        new CommandPolicyPlainCommand(),
+        ['__actor' => $contextActor],
+    );
+
+    $middleware->execute($operation, commandPolicyTerminal());
+
+    expect($capturedActor)->toBeInstanceOf(Guest::class);
+});
+
+it('adds command and operation to array policy context', function (): void {
     $actor = new FakeActor(1);
     $capturedContext = null;
 
