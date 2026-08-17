@@ -45,6 +45,8 @@ jobs:
         run: |
           composer config --json repositories.componenta-policy '{"type":"path","url":".ci/policy","options":{"versions":{"componenta/policy":"2.0.0"}}}'
           composer config --json repositories.componenta-cqrs-transport '{"type":"path","url":".ci/cqrs-transport","options":{"versions":{"componenta/cqrs-transport":"3.1.0"}}}'
+      - name: Select CQRS version
+        run: composer require --no-update "componenta/cqrs:${{ matrix.cqrs }}"
       - name: Install dependency matrix
         shell: bash
         env:
@@ -52,7 +54,7 @@ jobs:
         run: |
           set -euo pipefail
           for attempt in 1 2 3; do
-            if composer update "componenta/cqrs:${{ matrix.cqrs }}" --with-all-dependencies --no-interaction --prefer-dist --no-progress; then
+            if composer update --with-all-dependencies --no-interaction --prefer-dist --no-progress; then
               exit 0
             fi
 
