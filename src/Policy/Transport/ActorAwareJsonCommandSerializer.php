@@ -35,7 +35,6 @@ use Throwable;
 final readonly class ActorAwareJsonCommandSerializer implements CommandSerializerInterface
 {
     private const int FORMAT_VERSION = 2;
-    private const int LEGACY_FORMAT_VERSION = 1;
 
     private const string FORMAT_KEY = '__componenta_cqrs';
     private const string DATA_KEY = 'data';
@@ -380,16 +379,10 @@ final readonly class ActorAwareJsonCommandSerializer implements CommandSerialize
 
     private function restoreActor(mixed $value, string $commandClass): object
     {
-        // Backward compatibility for actor-aware payload v1 and unversioned
-        // payloads that stored the identity UUID directly as a string.
-        if (is_string($value)) {
-            return $this->restoreIdentityActor($value, $commandClass);
-        }
-
         $reference = $this->jsonObject(
             $value,
             sprintf(
-                'Serialized actor reference for %s must be a tagged JSON object or legacy UUID string.',
+                'Serialized actor reference for %s must be a tagged JSON object.',
                 $commandClass,
             ),
         );
@@ -515,11 +508,11 @@ final readonly class ActorAwareJsonCommandSerializer implements CommandSerialize
         $decoded = $this->jsonObject($decoded, 'Invalid payload: expected a JSON object.');
 
         if (!array_key_exists(self::FORMAT_KEY, $decoded)) {
-            return $decoded;
+            throw new TransportException('Actor-aware command payload must use the versioned envelope.');
         }
 
-        $version = $decoded[self::FORMAT_KEY] ?? null;
-        if ($version !== self::FORMAT_VERSION && $version !== self::LEGACY_FORMAT_VERSION) {
+        $version = $decoded[self::FORMAT_KEY];
+        if ($version !== self::FORMAT_VERSION) {
             throw new TransportException(sprintf(
                 'Unsupported command payload version "%s".',
                 is_scalar($version) ? (string) $version : get_debug_type($version),
