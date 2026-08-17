@@ -6,7 +6,7 @@ namespace Componenta\CQRS\Policy\Transport;
 
 use Closure;
 use Componenta\CQRS\Command\Transport\CommandSerializerInterface;
-use Componenta\CQRS\Command\Transport\JsonCommandSerializer;
+use Componenta\CQRS\Command\Transport\CommandSerializerSupportInterface;
 use Componenta\CQRS\Command\Transport\TransportException;
 use Componenta\Identity\IdentityInterface;
 use Componenta\Identity\Uuid;
@@ -23,18 +23,19 @@ use ReflectionUnionType;
 use Throwable;
 
 /**
- * JSON serializer for ActorAware commands.
+ * JSON serializer for commands that explicitly carry a policy actor.
  *
  * The standard actor reference model is intentionally small:
- * - Guest is encoded as a stateless tagged reference;
- * - IdentityInterface is encoded by UUID and restored through ActorRepositoryInterface;
- * - application-specific actor kinds require a custom CommandSerializerInterface.
- *
- * Non-actor-aware commands are delegated to the standard strict serializer.
+ * - {@see Guest} is encoded as a stateless tagged reference;
+ * - {@see IdentityInterface} is encoded by UUID and restored through
+ *   {@see ActorRepositoryInterface};
+ * - application-specific actor kinds belong to an application serializer that
+ *   is ordered before this serializer in a composite.
  */
-final readonly class ActorAwareJsonCommandSerializer implements CommandSerializerInterface
+final readonly class ActorAwareJsonCommandSerializer implements CommandSerializerInterface, CommandSerializerSupportInterface
 {
     private const int FORMAT_VERSION = 2;
+    private const int MAX_NESTING_DEPTH = 64;
 
     private const string FORMAT_KEY = '__componenta_cqrs';
     private const string DATA_KEY = 'data';
@@ -44,15 +45,23 @@ final readonly class ActorAwareJsonCommandSerializer implements CommandSerialize
     private const string ACTOR_TYPE_GUEST = 'guest';
     private const string ACTOR_TYPE_IDENTITY = 'identity';
 
-    public function __construct(
-        private ActorRepositoryInterface $actors,
-        private CommandSerializerInterface $fallback = new JsonCommandSerializer(),
-    ) {}
+    public function __construct(private ActorRepositoryInterface $actors) {}
+
+    public function supportsCommand(object|string $command): bool
+    {
+        $class = is_object($command) ? $command::class : $command;
+
+        return is_a($class, ActorAwareInterface::class, true);
+    }
 
     public function serialize(object $command): string
     {
-        if (!$command instanceof ActorAwareInterface) {
-            return $this->fallback->serialize($command);
+        if (!$this->supportsCommand($command)) {
+            throw new TransportException(sprintf(
+                '%s does not support command %s.',
+                self::class,
+                $command::class,
+            ));
         }
 
         $reflection = new ReflectionClass($command);
@@ -73,12 +82,12 @@ final readonly class ActorAwareJsonCommandSerializer implements CommandSerialize
 
     public function deserialize(string $payload, string $commandClass): object
     {
-        if (!class_exists($commandClass)) {
-            return $this->fallback->deserialize($payload, $commandClass);
-        }
-
-        if (!is_a($commandClass, ActorAwareInterface::class, true)) {
-            return $this->fallback->deserialize($payload, $commandClass);
+        if (!$this->supportsCommand($commandClass)) {
+            throw new TransportException(sprintf(
+                '%s does not support command class %s.',
+                self::class,
+                $commandClass,
+            ));
         }
 
         try {
@@ -109,6 +118,7 @@ final readonly class ActorAwareJsonCommandSerializer implements CommandSerialize
         }
 
         $arguments = [];
+        $expectedState = [];
         $remaining = $data;
         $restoredActor = null;
 
@@ -123,12 +133,16 @@ final readonly class ActorAwareJsonCommandSerializer implements CommandSerialize
 
                 $this->assertParameterType($value, $parameter, $commandClass);
                 $arguments[] = $value;
+                $expectedState[$name] = $value;
                 unset($remaining[$name]);
                 continue;
             }
 
             if ($parameter->isDefaultValueAvailable()) {
-                $arguments[] = $parameter->getDefaultValue();
+                $value = $parameter->getDefaultValue();
+                $this->assertJsonValue($value, $name);
+                $arguments[] = $value;
+                $expectedState[$name] = $value;
                 continue;
             }
 
@@ -158,6 +172,8 @@ final readonly class ActorAwareJsonCommandSerializer implements CommandSerialize
                 $commandClass,
             ));
         }
+
+        $this->assertRoundTripState($command, $expectedState, $properties, $commandClass);
 
         return $command;
     }
@@ -223,12 +239,11 @@ final readonly class ActorAwareJsonCommandSerializer implements CommandSerialize
         }
 
         throw new TransportException(sprintf(
-            'Actor-aware command %s carries unsupported actor %s. The standard serializer supports %s or %s; configure a custom %s for application-specific actors.',
+            'Actor-aware command %s carries unsupported actor %s. The standard serializer supports %s or %s; register an application-specific serializer before it for additional actor kinds.',
             $commandClass,
             $actor::class,
             Guest::class,
             IdentityInterface::class,
-            CommandSerializerInterface::class,
         ));
     }
 
@@ -473,8 +488,16 @@ final readonly class ActorAwareJsonCommandSerializer implements CommandSerialize
         return $actor;
     }
 
-    private function assertJsonValue(mixed $value, string $path): void
+    private function assertJsonValue(mixed $value, string $path, int $depth = 0): void
     {
+        if ($depth > self::MAX_NESTING_DEPTH) {
+            throw new TransportException(sprintf(
+                'Command field "%s" exceeds the maximum JSON nesting depth of %d.',
+                $path,
+                self::MAX_NESTING_DEPTH,
+            ));
+        }
+
         if ($value === null || is_bool($value) || is_int($value) || is_string($value)) {
             return;
         }
@@ -489,17 +512,88 @@ final readonly class ActorAwareJsonCommandSerializer implements CommandSerialize
 
         if (is_array($value)) {
             foreach ($value as $key => $item) {
-                $this->assertJsonValue($item, $path . '.' . $key);
+                $this->assertJsonValue($item, $path . '.' . $key, $depth + 1);
             }
 
             return;
         }
 
         throw new TransportException(sprintf(
-            'Command field "%s" contains unsupported value of type %s; configure a custom serializer.',
+            'Command field "%s" contains unsupported value of type %s; register a custom serializer.',
             $path,
             get_debug_type($value),
         ));
+    }
+
+    /**
+     * @param array<string, mixed> $expectedState
+     * @param array<string, ReflectionProperty> $properties
+     */
+    private function assertRoundTripState(
+        object $command,
+        array $expectedState,
+        array $properties,
+        string $commandClass,
+    ): void {
+        foreach ($expectedState as $name => $expected) {
+            $property = $properties[$name];
+
+            if (!$property->isInitialized($command)) {
+                throw new TransportException(sprintf(
+                    'Restored command %s left constructor-backed field "%s" uninitialized.',
+                    $commandClass,
+                    $name,
+                ));
+            }
+
+            try {
+                $actual = $property->getValue($command);
+            } catch (Throwable $exception) {
+                throw new TransportException(
+                    sprintf('Cannot read restored command field "%s": %s', $name, $exception->getMessage()),
+                    previous: $exception,
+                );
+            }
+
+            if (!$this->valuesEquivalent($expected, $actual)) {
+                throw new TransportException(sprintf(
+                    'Restored command %s changed constructor-backed field "%s" during reconstruction.',
+                    $commandClass,
+                    $name,
+                ));
+            }
+        }
+    }
+
+    private function valuesEquivalent(mixed $expected, mixed $actual, int $depth = 0): bool
+    {
+        if ($depth > self::MAX_NESTING_DEPTH) {
+            return false;
+        }
+
+        if (is_int($expected) && is_float($actual)) {
+            return (float) $expected === $actual;
+        }
+
+        if (is_float($expected) && is_int($actual)) {
+            return $expected === (float) $actual;
+        }
+
+        if (is_array($expected) && is_array($actual)) {
+            if (array_keys($expected) !== array_keys($actual)) {
+                return false;
+            }
+
+            foreach ($expected as $key => $value) {
+                if (!$this->valuesEquivalent($value, $actual[$key], $depth + 1)) {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        return $expected === $actual;
     }
 
     /** @return array<string, mixed> */
