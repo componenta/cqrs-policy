@@ -183,6 +183,24 @@ final class PolicyTransportFallbackSerializer implements CommandSerializerInterf
     }
 }
 
+/** @param array<string, mixed> $data */
+function actorAwarePayload(array $data): string
+{
+    return json_encode([
+        '__componenta_cqrs' => 2,
+        'data' => $data,
+    ], JSON_THROW_ON_ERROR);
+}
+
+/** @return array{type: string, uuid: string} */
+function identityActorReference(IdentityInterface $actor): array
+{
+    return [
+        'type' => 'identity',
+        'uuid' => $actor->uuid->toString(),
+    ];
+}
+
 it('writes a tagged identity reference and restores the current repository actor', function (): void {
     $producerActor = new PolicyTransportIdentityActor(1);
     $currentActor = new PolicyTransportIdentityActor(1);
@@ -198,10 +216,7 @@ it('writes a tagged identity reference and restores the current repository actor
     expect($decoded)->toBe([
         '__componenta_cqrs' => 2,
         'data' => [
-            'actor' => [
-                'type' => 'identity',
-                'uuid' => $producerActor->uuid->toString(),
-            ],
+            'actor' => identityActorReference($producerActor),
             'id' => 42,
             'tags' => ['one', 'two'],
         ],
@@ -210,36 +225,6 @@ it('writes a tagged identity reference and restores the current repository actor
         ->and($restored->id)->toBe(42)
         ->and($restored->tags)->toBe(['one', 'two'])
         ->and($repository->requested)->toBe([$producerActor->uuid->toString()]);
-});
-
-it('reads legacy v1 and unversioned UUID actor references', function (): void {
-    $actor = new PolicyTransportIdentityActor(1);
-    $repository = new PolicyTransportActorRepository($actor);
-    $serializer = new ActorAwareJsonCommandSerializer($repository);
-
-    $v1 = $serializer->deserialize(json_encode([
-        '__componenta_cqrs' => 1,
-        'data' => [
-            'actor' => $actor->uuid->toString(),
-            'id' => 7,
-            'tags' => [],
-        ],
-    ], JSON_THROW_ON_ERROR), PolicyTransportActorCommand::class);
-    $unversioned = $serializer->deserialize(json_encode([
-        'actor' => $actor->uuid->toString(),
-        'id' => 8,
-        'tags' => ['legacy'],
-    ], JSON_THROW_ON_ERROR), PolicyTransportActorCommand::class);
-
-    expect($v1->actor)->toBe($actor)
-        ->and($v1->id)->toBe(7)
-        ->and($unversioned->actor)->toBe($actor)
-        ->and($unversioned->id)->toBe(8)
-        ->and($unversioned->tags)->toBe(['legacy'])
-        ->and($repository->requested)->toBe([
-            $actor->uuid->toString(),
-            $actor->uuid->toString(),
-        ]);
 });
 
 it('round-trips Guest as a stateless tagged reference without repository lookup', function (): void {
@@ -290,10 +275,7 @@ it('ignores static properties on actor-aware commands', function (): void {
     ))->serialize(new PolicyTransportStaticPropertyCommand($actor, 9));
 
     expect(json_decode($payload, true, flags: JSON_THROW_ON_ERROR)['data'])->toBe([
-        'actor' => [
-            'type' => 'identity',
-            'uuid' => $actor->uuid->toString(),
-        ],
+        'actor' => identityActorReference($actor),
         'id' => 9,
     ]);
 });
@@ -316,15 +298,12 @@ it('uses strict PHP type semantics on the actor-aware path', function (): void {
     $serializer = new ActorAwareJsonCommandSerializer(
         new PolicyTransportActorRepository($actor),
     );
-    $payload = json_encode([
-        'actor' => [
-            'type' => 'identity',
-            'uuid' => $actor->uuid->toString(),
-        ],
+    $payload = actorAwarePayload([
+        'actor' => identityActorReference($actor),
         'id' => 12,
         'ratio' => 3,
         'label' => null,
-    ], JSON_THROW_ON_ERROR);
+    ]);
 
     $command = $serializer->deserialize($payload, PolicyTransportStrictTypesCommand::class);
 
@@ -342,10 +321,10 @@ it('rejects scalar coercion and invalid union members on the actor-aware path', 
     $serializer = new ActorAwareJsonCommandSerializer(
         new PolicyTransportActorRepository($actor),
     );
-    $payload = json_encode([
-        'actor' => $actor->uuid->toString(),
+    $payload = actorAwarePayload([
+        'actor' => identityActorReference($actor),
         ...$data,
-    ], JSON_THROW_ON_ERROR);
+    ]);
 
     expect(fn() => $serializer->deserialize($payload, PolicyTransportStrictTypesCommand::class))
         ->toThrow(TransportException::class, $message);
@@ -386,10 +365,10 @@ it('keeps executable-looking strings as ordinary command data', function (): voi
     $serializer = new ActorAwareJsonCommandSerializer(
         new PolicyTransportActorRepository($actor),
     );
-    $command = $serializer->deserialize(json_encode([
-        'actor' => $actor->uuid->toString(),
+    $command = $serializer->deserialize(actorAwarePayload([
+        'actor' => identityActorReference($actor),
         'callback' => 'system',
-    ], JSON_THROW_ON_ERROR), PolicyTransportStringCapabilityCommand::class);
+    ]), PolicyTransportStringCapabilityCommand::class);
 
     expect($command->actor)->toBe($actor)
         ->and($command->callback)->toBe('system');
@@ -401,14 +380,11 @@ it('fails closed when an identity actor no longer exists', function (): void {
         new PolicyTransportActorRepository(null),
     );
 
-    expect(fn() => $serializer->deserialize(json_encode([
-        'actor' => [
-            'type' => 'identity',
-            'uuid' => $actor->uuid->toString(),
-        ],
+    expect(fn() => $serializer->deserialize(actorAwarePayload([
+        'actor' => identityActorReference($actor),
         'id' => 42,
         'tags' => [],
-    ], JSON_THROW_ON_ERROR), PolicyTransportActorCommand::class))
+    ]), PolicyTransportActorCommand::class))
         ->toThrow(TransportException::class, 'was not found');
 });
 
@@ -420,14 +396,11 @@ it('requires identity repository results to remain identifiable and match the re
     $serializer = new ActorAwareJsonCommandSerializer(
         new PolicyTransportActorRepository($repositoryActor),
     );
-    $payload = json_encode([
-        'actor' => [
-            'type' => 'identity',
-            'uuid' => $requested->uuid->toString(),
-        ],
+    $payload = actorAwarePayload([
+        'actor' => identityActorReference($requested),
         'id' => 42,
         'tags' => [],
-    ], JSON_THROW_ON_ERROR);
+    ]);
 
     expect(fn() => $serializer->deserialize($payload, PolicyTransportActorCommand::class))
         ->toThrow(TransportException::class, $message);
@@ -441,10 +414,7 @@ it('requires an explicit actor reference even when the constructor has a default
         new PolicyTransportActorRepository(new FakeActor(9)),
     );
 
-    expect(fn() => $serializer->deserialize(json_encode([
-        '__componenta_cqrs' => 2,
-        'data' => [],
-    ], JSON_THROW_ON_ERROR), PolicyTransportDefaultActorCommand::class))
+    expect(fn() => $serializer->deserialize(actorAwarePayload([]), PolicyTransportDefaultActorCommand::class))
         ->toThrow(TransportException::class, 'missing its actor reference');
 });
 
@@ -454,16 +424,13 @@ it('rejects a constructor that replaces the restored actor instance', function (
         new PolicyTransportActorRepository($actor),
     );
 
-    expect(fn() => $serializer->deserialize(json_encode([
-        'actor' => [
-            'type' => 'identity',
-            'uuid' => $actor->uuid->toString(),
-        ],
-    ], JSON_THROW_ON_ERROR), PolicyTransportActorReplacingCommand::class))
+    expect(fn() => $serializer->deserialize(actorAwarePayload([
+        'actor' => identityActorReference($actor),
+    ]), PolicyTransportActorReplacingCommand::class))
         ->toThrow(TransportException::class, 'replaced the actor instance');
 });
 
-it('rejects malformed actor references and invalid payload envelopes', function (
+it('requires the current versioned actor-aware envelope', function (
     mixed $payload,
     string $message,
 ): void {
@@ -480,8 +447,12 @@ it('rejects malformed actor references and invalid payload envelopes', function 
 })->with([
     'invalid JSON' => ['{', 'Failed to deserialize command'],
     'JSON list is not a command object' => [[1], 'expected a JSON object'],
+    'missing version envelope' => [[
+        'actor' => ['type' => 'guest'],
+        'id' => 42,
+    ], 'must use the versioned envelope'],
     'unsupported version' => [[
-        '__componenta_cqrs' => 3,
+        '__componenta_cqrs' => 1,
         'data' => [],
     ], 'Unsupported command payload version'],
     'versioned envelope has an extra field' => [[
@@ -489,47 +460,55 @@ it('rejects malformed actor references and invalid payload envelopes', function 
         'data' => [],
         'extra' => true,
     ], 'Invalid versioned command payload envelope'],
-    'actor reference is neither object nor legacy UUID' => [[
-        'actor' => 1,
+]);
+
+it('rejects malformed tagged actor references', function (
+    mixed $actorReference,
+    string $message,
+): void {
+    $serializer = new ActorAwareJsonCommandSerializer(
+        new PolicyTransportActorRepository(new PolicyTransportIdentityActor(1)),
+    );
+
+    expect(fn() => $serializer->deserialize(actorAwarePayload([
+        'actor' => $actorReference,
         'id' => 42,
         'tags' => [],
-    ], 'tagged JSON object or legacy UUID string'],
-    'legacy UUID is malformed' => [[
-        'actor' => 'not-a-uuid',
-        'id' => 42,
-        'tags' => [],
+    ]), PolicyTransportActorCommand::class))
+        ->toThrow(TransportException::class, $message);
+})->with([
+    'scalar actor reference' => [1, 'must be a tagged JSON object'],
+    'UUID string is no longer accepted' => [
+        (new PolicyTransportIdentityActor(1))->uuid->toString(),
+        'must be a tagged JSON object',
+    ],
+    'unknown tagged type' => [['type' => 'system'], 'Unsupported actor reference type'],
+    'guest has extra state' => [['type' => 'guest', 'id' => 1], 'Guest actor reference'],
+    'identity misses uuid' => [['type' => 'identity'], 'Identity actor reference'],
+    'identity UUID is malformed' => [[
+        'type' => 'identity',
+        'uuid' => 'not-a-uuid',
     ], 'not a valid UUID'],
-    'unknown tagged type' => [[
-        'actor' => ['type' => 'system'],
-        'id' => 42,
-        'tags' => [],
-    ], 'Unsupported actor reference type'],
-    'guest has extra state' => [[
-        'actor' => ['type' => 'guest', 'id' => 1],
-        'id' => 42,
-        'tags' => [],
-    ], 'Guest actor reference'],
-    'identity misses uuid' => [[
-        'actor' => ['type' => 'identity'],
-        'id' => 42,
-        'tags' => [],
-    ], 'Identity actor reference'],
     'identity has extra state' => [[
-        'actor' => [
-            'type' => 'identity',
-            'uuid' => (new PolicyTransportIdentityActor(1))->uuid->toString(),
-            'role' => 'admin',
-        ],
-        'id' => 42,
-        'tags' => [],
+        'type' => 'identity',
+        'uuid' => (new PolicyTransportIdentityActor(1))->uuid->toString(),
+        'role' => 'admin',
     ], 'Identity actor reference'],
-    'unknown command field' => [[
+]);
+
+it('rejects unknown command fields', function (): void {
+    $serializer = new ActorAwareJsonCommandSerializer(
+        new PolicyTransportActorRepository(null),
+    );
+
+    expect(fn() => $serializer->deserialize(actorAwarePayload([
         'actor' => ['type' => 'guest'],
         'id' => 42,
         'tags' => [],
         'unexpected' => true,
-    ], 'unknown field'],
-]);
+    ]), PolicyTransportActorCommand::class))
+        ->toThrow(TransportException::class, 'unknown field');
+});
 
 it('rejects unsupported actor-aware command shapes', function (
     Closure $operation,
