@@ -18,8 +18,8 @@ it('builds query policy middleware from typed ContainerValue entries', function 
     $entries = [];
     $provider = new FakeActorProvider(null);
     $enforcer = new PolicyEnforcer(
-        new ArrayPolicyProvider(new FakeContainer(), []),
-        MissingPolicyBehavior::DENY,
+        provider: new ArrayPolicyProvider(new FakeContainer(), []),
+        behavior: MissingPolicyBehavior::DENY,
     );
     $resolver = new class implements ActionIdResolverInterface {
         public function resolve(object $subject): string
