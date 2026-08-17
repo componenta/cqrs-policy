@@ -11,6 +11,7 @@ use Componenta\CQRS\Command\Transport\TransportException;
 use Componenta\Identity\IdentityInterface;
 use Componenta\Identity\Uuid;
 use Componenta\Policy\Actor\ActorAwareInterface;
+use Componenta\Policy\Actor\Guest;
 use JsonException;
 use ReflectionClass;
 use ReflectionIntersectionType;
@@ -22,18 +23,27 @@ use ReflectionUnionType;
 use Throwable;
 
 /**
- * JSON serializer that persists identifiable ActorAware command actors as UUID
- * references.
+ * JSON serializer for ActorAware commands.
  *
- * Policy accepts any actor object, but asynchronous restoration requires a
- * stable identity. Non-actor-aware commands are delegated to the standard
- * strict serializer.
+ * The standard actor reference model is intentionally small:
+ * - Guest is encoded as a stateless tagged reference;
+ * - IdentityInterface is encoded by UUID and restored through ActorRepositoryInterface;
+ * - application-specific actor kinds require a custom CommandSerializerInterface.
+ *
+ * Non-actor-aware commands are delegated to the standard strict serializer.
  */
 final readonly class ActorAwareJsonCommandSerializer implements CommandSerializerInterface
 {
+    private const int FORMAT_VERSION = 2;
+    private const int LEGACY_FORMAT_VERSION = 1;
+
     private const string FORMAT_KEY = '__componenta_cqrs';
     private const string DATA_KEY = 'data';
     private const string ACTOR_FIELD = 'actor';
+    private const string ACTOR_TYPE_FIELD = 'type';
+    private const string ACTOR_UUID_FIELD = 'uuid';
+    private const string ACTOR_TYPE_GUEST = 'guest';
+    private const string ACTOR_TYPE_IDENTITY = 'identity';
 
     public function __construct(
         private ActorRepositoryInterface $actors,
@@ -51,7 +61,7 @@ final readonly class ActorAwareJsonCommandSerializer implements CommandSerialize
 
         try {
             return json_encode([
-                self::FORMAT_KEY => JsonCommandSerializer::FORMAT_VERSION,
+                self::FORMAT_KEY => self::FORMAT_VERSION,
                 self::DATA_KEY => $data,
             ], JSON_THROW_ON_ERROR);
         } catch (JsonException $exception) {
@@ -94,7 +104,7 @@ final readonly class ActorAwareJsonCommandSerializer implements CommandSerialize
 
         if (!array_key_exists(self::ACTOR_FIELD, $data)) {
             throw new TransportException(sprintf(
-                'Transported actor-aware command %s is missing its actor UUID.',
+                'Transported actor-aware command %s is missing its actor reference.',
                 $commandClass,
             ));
         }
@@ -145,9 +155,8 @@ final readonly class ActorAwareJsonCommandSerializer implements CommandSerialize
 
         if ($command->actor !== $restoredActor) {
             throw new TransportException(sprintf(
-                'Restored command %s replaced the actor instance loaded for UUID "%s".',
+                'Restored command %s replaced the actor instance restored from transport.',
                 $commandClass,
-                $restoredActor->uuid->toString(),
             ));
         }
 
@@ -180,17 +189,16 @@ final readonly class ActorAwareJsonCommandSerializer implements CommandSerialize
             }
 
             if ($name === self::ACTOR_FIELD) {
-                if (!$value instanceof IdentityInterface) {
+                if (!is_object($value)) {
                     throw new TransportException(sprintf(
-                        'Actor-aware command property "%s::$%s" must implement %s for transport serialization; %s given.',
+                        'Actor-aware command property "%s::$%s" must be an object; %s given.',
                         $reflection->getName(),
                         $name,
-                        IdentityInterface::class,
                         get_debug_type($value),
                     ));
                 }
 
-                $data[$name] = $value->uuid->toString();
+                $data[$name] = $this->serializeActor($value, $reflection->getName());
                 continue;
             }
 
@@ -199,6 +207,30 @@ final readonly class ActorAwareJsonCommandSerializer implements CommandSerialize
         }
 
         return $data;
+    }
+
+    /** @return array{type: 'guest'}|array{type: 'identity', uuid: string} */
+    private function serializeActor(object $actor, string $commandClass): array
+    {
+        if ($actor instanceof Guest) {
+            return [self::ACTOR_TYPE_FIELD => self::ACTOR_TYPE_GUEST];
+        }
+
+        if ($actor instanceof IdentityInterface) {
+            return [
+                self::ACTOR_TYPE_FIELD => self::ACTOR_TYPE_IDENTITY,
+                self::ACTOR_UUID_FIELD => $actor->uuid->toString(),
+            ];
+        }
+
+        throw new TransportException(sprintf(
+            'Actor-aware command %s carries unsupported actor %s. The standard serializer supports %s or %s; configure a custom %s for application-specific actors.',
+            $commandClass,
+            $actor::class,
+            Guest::class,
+            IdentityInterface::class,
+            CommandSerializerInterface::class,
+        ));
     }
 
     /**
@@ -348,14 +380,67 @@ final readonly class ActorAwareJsonCommandSerializer implements CommandSerialize
 
     private function restoreActor(mixed $value, string $commandClass): object
     {
-        if (!is_string($value)) {
-            throw new TransportException(sprintf(
-                'Serialized actor reference for %s must be a UUID string; %s given.',
-                $commandClass,
-                get_debug_type($value),
-            ));
+        // Backward compatibility for actor-aware payload v1 and unversioned
+        // payloads that stored the identity UUID directly as a string.
+        if (is_string($value)) {
+            return $this->restoreIdentityActor($value, $commandClass);
         }
 
+        $reference = $this->jsonObject(
+            $value,
+            sprintf(
+                'Serialized actor reference for %s must be a tagged JSON object or legacy UUID string.',
+                $commandClass,
+            ),
+        );
+
+        $type = $reference[self::ACTOR_TYPE_FIELD] ?? null;
+
+        if ($type === self::ACTOR_TYPE_GUEST) {
+            if ($reference !== [self::ACTOR_TYPE_FIELD => self::ACTOR_TYPE_GUEST]) {
+                throw new TransportException(sprintf(
+                    'Guest actor reference for %s must contain only the "%s" discriminator.',
+                    $commandClass,
+                    self::ACTOR_TYPE_FIELD,
+                ));
+            }
+
+            return new Guest();
+        }
+
+        if ($type === self::ACTOR_TYPE_IDENTITY) {
+            if (array_keys($reference) !== [self::ACTOR_TYPE_FIELD, self::ACTOR_UUID_FIELD]
+                && array_keys($reference) !== [self::ACTOR_UUID_FIELD, self::ACTOR_TYPE_FIELD]
+            ) {
+                throw new TransportException(sprintf(
+                    'Identity actor reference for %s must contain exactly "%s" and "%s".',
+                    $commandClass,
+                    self::ACTOR_TYPE_FIELD,
+                    self::ACTOR_UUID_FIELD,
+                ));
+            }
+
+            $uuid = $reference[self::ACTOR_UUID_FIELD];
+            if (!is_string($uuid)) {
+                throw new TransportException(sprintf(
+                    'Identity actor UUID for %s must be a string; %s given.',
+                    $commandClass,
+                    get_debug_type($uuid),
+                ));
+            }
+
+            return $this->restoreIdentityActor($uuid, $commandClass);
+        }
+
+        throw new TransportException(sprintf(
+            'Unsupported actor reference type "%s" for %s.',
+            is_scalar($type) ? (string) $type : get_debug_type($type),
+            $commandClass,
+        ));
+    }
+
+    private function restoreIdentityActor(string $value, string $commandClass): object
+    {
         try {
             $uuid = Uuid::fromString($value);
         } catch (Throwable $exception) {
@@ -433,12 +518,11 @@ final readonly class ActorAwareJsonCommandSerializer implements CommandSerialize
             return $decoded;
         }
 
-        if (($decoded[self::FORMAT_KEY] ?? null) !== JsonCommandSerializer::FORMAT_VERSION) {
+        $version = $decoded[self::FORMAT_KEY] ?? null;
+        if ($version !== self::FORMAT_VERSION && $version !== self::LEGACY_FORMAT_VERSION) {
             throw new TransportException(sprintf(
                 'Unsupported command payload version "%s".',
-                is_scalar($decoded[self::FORMAT_KEY] ?? null)
-                    ? (string) $decoded[self::FORMAT_KEY]
-                    : get_debug_type($decoded[self::FORMAT_KEY] ?? null),
+                is_scalar($version) ? (string) $version : get_debug_type($version),
             ));
         }
 
