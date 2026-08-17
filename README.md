@@ -74,16 +74,49 @@ Bind an application implementation of:
 Componenta\CQRS\Policy\Transport\ActorRepositoryInterface
 ```
 
-Policy actors are broader than transport identities. The optional serializer therefore requires the actor of an asynchronous command to implement `Componenta\Identity\IdentityInterface`:
+The standard actor-aware serializer supports exactly two policy actor reference forms:
+
+```json
+{"type":"guest"}
+```
+
+for `Componenta\Policy\Actor\Guest`, and:
+
+```json
+{"type":"identity","uuid":"00000000-0000-7000-8000-000000000001"}
+```
+
+for actors implementing `Componenta\Identity\IdentityInterface`.
+
+An actor-aware command is written using the current versioned payload envelope:
+
+```json
+{
+  "__componenta_cqrs": 2,
+  "data": {
+    "actor": {
+      "type": "identity",
+      "uuid": "00000000-0000-7000-8000-000000000001"
+    },
+    "postId": 42
+  }
+}
+```
+
+The serializer does not accept legacy UUID-only actor references or unversioned actor-aware payloads.
+
+Serialization semantics:
 
 - ordinary non-actor-aware commands are delegated to `JsonCommandSerializer`;
-- an identifiable actor is written only as its UUID;
-- `ActorRepositoryInterface` loads the current actor object during deserialization;
-- the repository result must implement `IdentityInterface` and retain the requested UUID;
-- the restored command must retain the exact actor instance returned by the repository;
-- a non-identifiable actor such as the default `Guest` is valid for synchronous policy evaluation but is rejected for transport serialization.
+- `Guest` is restored as a fresh stateless `Guest` and does not use the actor repository;
+- `IdentityInterface` actors are persisted by UUID and restored through `ActorRepositoryInterface`;
+- a repository result for an identity reference must implement `IdentityInterface` and retain the requested UUID;
+- the restored command must retain the exact actor instance produced by transport restoration;
+- any other actor object is unsupported by the standard serializer.
 
-Missing actors, invalid UUIDs, repository identity mismatches, unknown fields, executable callables, and unsupported command shapes fail closed.
+Applications that use additional actor kinds such as a stateless system principal, API client, or service account may replace `CommandSerializerInterface` with an application-specific implementation. The base integration intentionally does not introduce a generic actor codec or registry abstraction for those application semantics.
+
+Missing actors, malformed actor references, invalid UUIDs, repository identity mismatches, unknown fields, executable callables, and unsupported command shapes fail closed.
 
 The command worker and envelope remain unchanged: the serializer returns a complete command whose actor is already restored before the existing command bus is called.
 
