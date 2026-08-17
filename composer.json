@@ -7,12 +7,17 @@
         "php": ">=8.4",
         "componenta/config": "^2.0.2",
         "componenta/cqrs": "^2.0.1 || ^3.0.3",
+        "componenta/identity": "^1.0",
         "componenta/policy": "^1.0.6",
         "psr/container": "^2.0"
     },
     "require-dev": {
+        "componenta/cqrs-transport": "^3.0.1",
         "pestphp/pest": "^4.0",
         "phpstan/phpstan": "^2.0"
+    },
+    "suggest": {
+        "componenta/cqrs-transport": "Adds actor-aware JSON command serialization for asynchronous policy commands."
     },
     "autoload": {
         "psr-4": {
