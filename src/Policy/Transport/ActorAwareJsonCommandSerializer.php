@@ -140,12 +140,11 @@ final readonly class ActorAwareJsonCommandSerializer implements CommandSerialize
             ));
         }
 
-        if (!$command->actor->uuid->equals($restoredActor->uuid)) {
+        if ($command->actor !== $restoredActor) {
             throw new TransportException(sprintf(
-                'Restored command %s replaced transported actor "%s" with "%s".',
+                'Restored command %s replaced the actor instance loaded for UUID "%s".',
                 $commandClass,
                 $restoredActor->uuid->toString(),
-                $command->actor->uuid->toString(),
             ));
         }
 
