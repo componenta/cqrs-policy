@@ -11,6 +11,8 @@ use Componenta\CQRS\Policy\Transport\ActorRepositoryInterface;
 use Componenta\CQRS\Policy\Transport\ConfigProvider;
 use Componenta\CQRS\Policy\Transport\Factory\ActorAwareJsonCommandSerializerFactory;
 use Componenta\CQRS\Tests\Fixture\FakeContainer;
+use Componenta\Identity\UuidInterface;
+use Componenta\Policy\Actor\ActorInterface;
 
 it('registers the actor-aware serializer only through the explicit transport provider', function (): void {
     $config = (new ConfigProvider())();
@@ -22,7 +24,12 @@ it('registers the actor-aware serializer only through the explicit transport pro
 });
 
 it('builds the actor-aware serializer from ContainerValue', function (): void {
-    $repository = new PolicyTransportActorRepository(null);
+    $repository = new class implements ActorRepositoryInterface {
+        public function findByUuid(UuidInterface $uuid): ?ActorInterface
+        {
+            return null;
+        }
+    };
     $container = new ContainerValue(
         new FakeContainer([
             ActorRepositoryInterface::class => $repository,
