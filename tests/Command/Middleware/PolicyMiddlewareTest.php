@@ -10,7 +10,6 @@ use Componenta\CQRS\Command\OperationResult;
 use Componenta\CQRS\Tests\Fixture\FakeActor;
 use Componenta\CQRS\Tests\Fixture\FakeContainer;
 use Componenta\Policy\Actor\ActorAwareInterface;
-use Componenta\Policy\Actor\ActorInterface;
 use Componenta\Policy\Actor\Guest;
 use Componenta\Policy\Context\ContextInterface;
 use Componenta\Policy\Exception\DenyReason;
@@ -26,9 +25,7 @@ final readonly class CommandPolicyPlainCommand
 
 final readonly class CommandPolicyActorAwareCommand implements ActorAwareInterface
 {
-    public function __construct(
-        public ActorInterface $actor,
-    ) {}
+    public function __construct(public object $actor) {}
 }
 
 function makeCommandPolicyEnforcer(
@@ -91,6 +88,33 @@ it('uses only the actor explicitly carried by an actor-aware command', function 
     expect($capturedActor)->toBe($commandActor);
 });
 
+it('accepts an explicitly carried guest as the command actor', function (): void {
+    $guest = new Guest();
+    $capturedActor = null;
+
+    $policy = new class($capturedActor) implements PolicyInterface {
+        public function __construct(public ?object &$capturedActor) {}
+
+        public function enforce(object $actor, ContextInterface $context): true|DenyReason
+        {
+            $this->capturedActor = $actor;
+
+            return true;
+        }
+    };
+
+    $middleware = new PolicyMiddleware(makeCommandPolicyEnforcer([
+        CommandPolicyActorAwareCommand::class => $policy,
+    ]));
+
+    $middleware->execute(
+        Operation::create(new CommandPolicyActorAwareCommand($guest)),
+        commandPolicyTerminal(),
+    );
+
+    expect($capturedActor)->toBe($guest);
+});
+
 it('treats a non-actor-aware command as anonymous and ignores actor-shaped attributes', function (): void {
     $contextActor = new FakeActor(2);
     $capturedActor = null;
@@ -116,7 +140,8 @@ it('treats a non-actor-aware command as anonymous and ignores actor-shaped attri
 
     $middleware->execute($operation, commandPolicyTerminal());
 
-    expect($capturedActor)->toBeInstanceOf(Guest::class);
+    expect($capturedActor)->toBeInstanceOf(Guest::class)
+        ->and($capturedActor)->not->toBe($contextActor);
 });
 
 it('adds command and operation to array policy context', function (): void {
