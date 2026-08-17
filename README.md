@@ -6,7 +6,7 @@ Policy middleware integration for `componenta/cqrs` and `componenta/policy`.
 composer require componenta/cqrs-policy
 ```
 
-Register the providers:
+Register the core providers:
 
 ```php
 return [
@@ -16,10 +16,12 @@ return [
 ];
 ```
 
-The package exposes:
+The core package exposes:
 
 - `Componenta\CQRS\Command\Middleware\PolicyMiddleware`
 - `Componenta\CQRS\Query\Middleware\PolicyMiddleware`
+
+The core policy integration does not require `componenta/cqrs-transport`. It may coexist with an older transport version when actor-aware transport integration is not registered.
 
 ## Command actors
 
@@ -76,6 +78,8 @@ return [
 ];
 ```
 
+The version requirement belongs to this optional provider, not the core package. Registering the transport integration with a transport version that lacks `CommandSerializerSupportInterface` / `CompositeCommandSerializer` fails immediately with a clear configuration error.
+
 Bind an application implementation of:
 
 ```php
@@ -93,7 +97,9 @@ The actor-aware serializer implements both `CommandSerializerInterface` and `Com
 
 Composite support must be stable for the command class: a serializer must make the same support decision for an instance and for that instance's class name, because deserialization has no command instance yet. Support predicates therefore must not depend on actor value or other per-instance state.
 
-Applications that need another command or actor wire format register their own serializer ahead of the actor-aware serializer in an application-owned composite. Such a serializer owns complete command classes and must understand every wire variant it can receive for those classes. A serializer failure is final; selection never falls through after malformed payload, missing actor, or another validation error.
+If the same command class can carry a standard actor in one instance and an application-specific actor in another, a custom serializer cannot claim only the latter instance. It must own that entire command class and understand every wire variant it accepts, or the application should use distinct command types.
+
+Applications that need another command or actor wire format register their own serializer ahead of the actor-aware serializer in an application-owned composite. A serializer failure is final; selection never falls through after malformed payload, missing actor, or another validation error.
 
 ### Standard actor references
 
@@ -135,14 +141,15 @@ Serialization semantics:
 - an identity repository result must implement `IdentityInterface` and retain the requested UUID;
 - the restored command must retain the exact actor instance produced by restoration;
 - constructor reconstruction must not change other serialized command state;
-- recursive/excessively deep arrays, unknown fields, executable callables, hooked/virtual properties, private state, and unsupported actor kinds fail closed.
+- recursive/excessively deep arrays, unknown fields, executable callables, hooked/virtual properties, private state, and unsupported actor kinds fail closed;
+- non-actor payload values and nesting are validated before command construction.
 
 The actor UUID is a persistence reference, not an authentication credential. The standard integration assumes queued payloads originate from trusted producers and are protected against unauthorized modification. If that assumption does not hold, integrity protection must cover the complete envelope/payload rather than only the actor reference.
 
-The command worker and envelope remain generic and unchanged: deserialization returns a complete command before the existing command bus and policy middleware run.
+The command worker and envelope remain generic and policy-agnostic: deserialization returns a complete command before the existing command bus and policy middleware run.
 
 ## Middleware placement
 
-Place command policy before transport when enqueueing itself must be authorized. The transport worker does not set `ATTR_SKIP_POLICY` automatically, so the restored actor-aware command is checked again during execution unless a trusted technical flow explicitly opts out.
+Place command policy before transport when enqueueing itself must be authorized. The transport worker does not contain or set a policy-specific skip constant. A trusted technical flow may still supply `PolicyMiddleware::ATTR_SKIP_POLICY` explicitly as application dispatch configuration, but ordinary worker execution re-evaluates the restored command actor.
 
 Middleware order is an application configuration contract; it is not an outbox or an authorization proof.
