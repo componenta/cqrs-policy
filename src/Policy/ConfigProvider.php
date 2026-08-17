@@ -8,9 +8,15 @@ use Componenta\Config\ConfigProvider as BaseConfigProvider;
 use Componenta\CQRS\Command\Middleware\PolicyMiddleware as CommandPolicyMiddleware;
 use Componenta\CQRS\Query\Factory\PolicyMiddlewareFactory as QueryPolicyMiddlewareFactory;
 use Componenta\CQRS\Query\Middleware\PolicyMiddleware as QueryPolicyMiddleware;
+use Componenta\CQRS\Resolver\ActorResolver;
 
 final class ConfigProvider extends BaseConfigProvider
 {
+    protected function getInvokables(): array
+    {
+        return [ActorResolver::class];
+    }
+
     protected function getFactories(): array
     {
         return [
