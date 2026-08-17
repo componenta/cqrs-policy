@@ -34,7 +34,7 @@ final class PolicyTransportActorReplacingCommand implements ActorAwareInterface
 
     public function __construct(ActorInterface $actor)
     {
-        $this->actor = new FakeActor(2);
+        $this->actor = new FakeActor(1);
     }
 }
 
@@ -156,7 +156,7 @@ it('requires an actor UUID even when the command constructor has a default actor
         ->toThrow(TransportException::class, 'missing its actor UUID');
 });
 
-it('rejects a constructor that replaces the restored actor identity', function (): void {
+it('rejects a constructor that replaces the repository actor with another instance of the same identity', function (): void {
     $actor = new FakeActor(1);
     $serializer = new ActorAwareJsonCommandSerializer(
         new PolicyTransportActorRepository($actor),
@@ -169,7 +169,7 @@ it('rejects a constructor that replaces the restored actor identity', function (
     ], JSON_THROW_ON_ERROR);
 
     expect(fn() => $serializer->deserialize($payload, PolicyTransportActorReplacingCommand::class))
-        ->toThrow(TransportException::class, 'replaced transported actor');
+        ->toThrow(TransportException::class, 'replaced the actor instance');
 });
 
 it('rejects an actor returned for a different UUID', function (): void {
