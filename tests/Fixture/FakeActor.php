@@ -4,13 +4,14 @@ declare(strict_types=1);
 
 namespace Componenta\CQRS\Tests\Fixture;
 
+use Componenta\Identity\IdentityInterface;
 use Componenta\Identity\Uuid;
 use Componenta\Identity\UuidInterface;
-use Componenta\Policy\Actor\ActorInterface;
+use Componenta\Policy\Actor\PermissionAwareInterface;
 use Componenta\Policy\Permission\PermissionCollection;
 use Componenta\Policy\Permission\PermissionCollectionInterface;
 
-final readonly class FakeActor implements ActorInterface
+final readonly class FakeActor implements IdentityInterface, PermissionAwareInterface
 {
     public PermissionCollectionInterface $permissions;
     public UuidInterface $uuid;
