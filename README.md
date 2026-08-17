@@ -16,7 +16,7 @@ return [
 ];
 ```
 
-The package keeps the middleware FQCNs stable:
+The package exposes:
 
 - `Componenta\CQRS\Command\Middleware\PolicyMiddleware`
 - `Componenta\CQRS\Query\Middleware\PolicyMiddleware`
@@ -30,7 +30,7 @@ command implements ActorAwareInterface -> command actor object
 command does not implement it           -> Guest
 ```
 
-Command operation attributes and `ActorProviderInterface` are not command actor sources. This makes synchronous, nested, replayed, and transported command execution use the same explicit contract.
+Command operation attributes and `ActorProviderInterface` are not command actor sources. This keeps synchronous, nested, replayed, and transported command execution on the same explicit contract.
 
 ```php
 use Componenta\Policy\Actor\ActorAwareInterface;
@@ -44,19 +44,27 @@ final readonly class PublishPostCommand implements ActorAwareInterface
 }
 ```
 
-`ActorAwareInterface::$actor` is intentionally `object`, matching `PolicyEnforcer` and `PolicyInterface`. A command can therefore carry a user, system subject, `Guest`, or any custom policy actor. Concrete policies validate only the capabilities they require.
+`ActorAwareInterface::$actor` is intentionally `object`, matching `PolicyEnforcer` and `PolicyInterface`. There is no universal composite actor interface. Domain subjects implement only the capabilities their policies require.
 
-`Componenta\CQRS\Resolver\ActorResolver` extracts the object and returns `null` for an anonymous message. Command policy middleware creates a `Guest` only when the command is not actor-aware. Use an explicit allow policy for public commands; protected policies should deny actors that do not provide their required capabilities.
+`Guest` is a first-class anonymous policy actor. Built-in protected policies deny Guest normally; unrelated objects that do not implement the capability expected by a policy remain policy integration errors.
 
-Query policy keeps its per-call query-context behavior because queries do not cross the command transport boundary.
+## Query actors
+
+Queries retain a per-call actor resolution chain:
+
+```text
+query context ATTR_ACTOR
+-> ActorAwareInterface query
+-> ActorProviderInterface
+```
+
+`ActorProviderInterface` may return a concrete actor, `Guest` when that provider explicitly represents anonymous access, or `null` when no actor can be resolved. Query middleware does not convert `null` to Guest; unresolved actors produce `Query\Exception\AuthenticationRequiredException`.
+
+Public queries should use an explicit `#[Allow]` policy together with an actor source that intentionally supplies Guest. `ATTR_SKIP_POLICY` is reserved for trusted technical flows, not the ordinary public-access model.
 
 ## Asynchronous actor-aware commands
 
-The default transport JSON serializer intentionally rejects arbitrary objects. To transport an actor-aware command, install the transport package and explicitly register the optional integration provider:
-
-```bash
-composer require componenta/cqrs-transport
-```
+Actor-aware transport integration requires a composite-capable `componenta/cqrs-transport` 3.1+ and is enabled explicitly:
 
 ```php
 return [
@@ -74,7 +82,20 @@ Bind an application implementation of:
 Componenta\CQRS\Policy\Transport\ActorRepositoryInterface
 ```
 
-The standard actor-aware serializer supports exactly two policy actor reference forms:
+The integration installs an ordered `CompositeCommandSerializer`:
+
+```text
+ActorAwareJsonCommandSerializer
+JsonCommandSerializer
+```
+
+The actor-aware serializer implements both `CommandSerializerInterface` and `CommandSerializerSupportInterface` and owns only `ActorAwareInterface` command types. It contains no fallback logic of its own. Ordinary commands reach the broad JSON serializer through the composite.
+
+Applications that need another command or actor wire format register their own serializer ahead of the actor-aware serializer in an application-owned composite. A serializer failure is final; selection never falls through after malformed payload, missing actor, or another validation error.
+
+### Standard actor references
+
+The standard actor-aware serializer supports two actor forms:
 
 ```json
 {"type":"guest"}
@@ -88,7 +109,7 @@ for `Componenta\Policy\Actor\Guest`, and:
 
 for actors implementing `Componenta\Identity\IdentityInterface`.
 
-An actor-aware command is written using the current versioned payload envelope:
+An actor-aware command uses one current versioned wire contract:
 
 ```json
 {
@@ -103,25 +124,23 @@ An actor-aware command is written using the current versioned payload envelope:
 }
 ```
 
-The serializer does not accept legacy UUID-only actor references or unversioned actor-aware payloads.
+UUID-only actor references and unversioned actor-aware payloads are not accepted.
 
 Serialization semantics:
 
-- ordinary non-actor-aware commands are delegated to `JsonCommandSerializer`;
-- `Guest` is restored as a fresh stateless `Guest` and does not use the actor repository;
-- `IdentityInterface` actors are persisted by UUID and restored through `ActorRepositoryInterface`;
-- a repository result for an identity reference must implement `IdentityInterface` and retain the requested UUID;
-- the restored command must retain the exact actor instance produced by transport restoration;
-- any other actor object is unsupported by the standard serializer.
+- `Guest` is restored as a fresh stateless Guest without repository access;
+- an `IdentityInterface` actor is stored by UUID and restored through `ActorRepositoryInterface`;
+- an identity repository result must implement `IdentityInterface` and retain the requested UUID;
+- the restored command must retain the exact actor instance produced by restoration;
+- constructor reconstruction must not change other serialized command state;
+- recursive/excessively deep arrays, unknown fields, executable callables, hooked/virtual properties, private state, and unsupported actor kinds fail closed.
 
-Applications that use additional actor kinds such as a stateless system principal, API client, or service account may replace `CommandSerializerInterface` with an application-specific implementation. The base integration intentionally does not introduce a generic actor codec or registry abstraction for those application semantics.
+The actor UUID is a persistence reference, not an authentication credential. The standard integration assumes queued payloads originate from trusted producers and are protected against unauthorized modification. If that assumption does not hold, integrity protection must cover the complete envelope/payload rather than only the actor reference.
 
-Missing actors, malformed actor references, invalid UUIDs, repository identity mismatches, unknown fields, executable callables, and unsupported command shapes fail closed.
-
-The command worker and envelope remain unchanged: the serializer returns a complete command whose actor is already restored before the existing command bus is called.
+The command worker and envelope remain generic and unchanged: deserialization returns a complete command before the existing command bus and policy middleware run.
 
 ## Middleware placement
 
-Place command policy before transport when enqueue itself must be authorized. The transport worker does not set `ATTR_SKIP_POLICY` automatically, so the restored actor-aware command is checked again during execution unless a trusted technical flow explicitly opts out.
+Place command policy before transport when enqueueing itself must be authorized. The transport worker does not set `ATTR_SKIP_POLICY` automatically, so the restored actor-aware command is checked again during execution unless a trusted technical flow explicitly opts out.
 
-`ATTR_SKIP_POLICY` is a technical escape hatch, not the public-access model. Middleware order alone is not an outbox or an authorization proof.
+Middleware order is an application configuration contract; it is not an outbox or an authorization proof.
