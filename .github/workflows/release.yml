@@ -67,9 +67,54 @@ jobs:
       - run: composer test
       - run: composer analyse
 
+  verify-core-without-transport:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['8.4', '8.5']
+    steps:
+      - uses: actions/checkout@v7
+      - name: Checkout policy v2 source
+        uses: actions/checkout@v7
+        with:
+          repository: componenta/policy
+          ref: main
+          path: .ci/policy
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          coverage: none
+          tools: composer:v2
+      - name: Configure Composer authentication
+        run: composer config --global github-oauth.github.com "${{ github.token }}"
+      - run: composer validate --strict
+      - name: Use current policy v2 source
+        run: >-
+          composer config --json repositories.componenta-policy
+          '{"type":"path","url":".ci/policy","options":{"versions":{"componenta/policy":"2.0.0"}}}'
+      - name: Install production dependencies only
+        shell: bash
+        env:
+          COMPOSER_MAX_PARALLEL_HTTP: 2
+        run: composer update --no-dev --with-all-dependencies --no-interaction --prefer-dist --no-progress
+      - name: Verify core provider loads without transport
+        shell: bash
+        run: |
+          php -r '
+          require "vendor/autoload.php";
+          $config = (new Componenta\CQRS\Policy\ConfigProvider())();
+          if (!is_array($config)) {
+              throw new RuntimeException("Policy ConfigProvider did not return configuration.");
+          }
+          if (class_exists(Componenta\CQRS\Command\Transport\CommandSerializerInterface::class, false)) {
+              throw new RuntimeException("Optional transport was loaded into the core-only install.");
+          }
+          '
+
   publish:
     if: github.event_name == 'push' && startsWith(github.event.head_commit.message, 'Release v')
-    needs: verify
+    needs: [verify, verify-core-without-transport]
     runs-on: ubuntu-latest
     permissions:
       contents: write
