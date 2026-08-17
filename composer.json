@@ -12,12 +12,15 @@
         "psr/container": "^2.0"
     },
     "require-dev": {
-        "componenta/cqrs-transport": "^3.0.1",
+        "componenta/cqrs-transport": "^3.1",
         "pestphp/pest": "^4.0",
         "phpstan/phpstan": "^2.0"
     },
+    "conflict": {
+        "componenta/cqrs-transport": "<3.1.0"
+    },
     "suggest": {
-        "componenta/cqrs-transport": "Adds actor-aware JSON command serialization for asynchronous policy commands."
+        "componenta/cqrs-transport": "3.1+ adds composite actor-aware JSON command serialization for asynchronous policy commands."
     },
     "autoload": {
         "psr-4": {
@@ -45,6 +48,7 @@
     },
     "prefer-stable": true,
     "scripts": {
-        "test": "@php vendor/bin/pest"
+        "test": "@php vendor/bin/pest",
+        "analyse": "@php vendor/bin/phpstan analyse src --level=max"
     }
 }
