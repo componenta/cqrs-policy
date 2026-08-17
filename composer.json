@@ -16,9 +16,6 @@
         "pestphp/pest": "^4.0",
         "phpstan/phpstan": "^2.0"
     },
-    "conflict": {
-        "componenta/cqrs-transport": "<3.1.0"
-    },
     "suggest": {
         "componenta/cqrs-transport": "3.1+ adds composite actor-aware JSON command serialization for asynchronous policy commands."
     },
