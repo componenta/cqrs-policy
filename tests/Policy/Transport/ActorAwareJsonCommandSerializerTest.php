@@ -70,6 +70,18 @@ final readonly class PolicyTransportNestedArrayCommand implements ActorAwareInte
     ) {}
 }
 
+final class PolicyTransportHydrationProbeCommand implements ActorAwareInterface
+{
+    public static int $constructions = 0;
+
+    public function __construct(
+        public object $actor,
+        public array $data,
+    ) {
+        ++self::$constructions;
+    }
+}
+
 final class PolicyTransportHookedPropertyCommand implements ActorAwareInterface
 {
     public static int $reads = 0;
@@ -269,6 +281,27 @@ it('rejects recursive arrays before unbounded recursion can exhaust the process'
 
     expect(fn() => $serializer->serialize(new PolicyTransportNestedArrayCommand($actor, $recursive)))
         ->toThrow(TransportException::class, 'maximum JSON nesting depth');
+});
+
+it('rejects excessive payload nesting before command construction', function (): void {
+    $actor = new PolicyTransportIdentityActor(1);
+    $nested = 'leaf';
+
+    for ($i = 0; $i < 70; ++$i) {
+        $nested = [$nested];
+    }
+
+    PolicyTransportHydrationProbeCommand::$constructions = 0;
+    $serializer = new ActorAwareJsonCommandSerializer(
+        new PolicyTransportActorRepository($actor),
+    );
+
+    expect(fn() => $serializer->deserialize(actorAwarePayload([
+        'actor' => identityActorReference($actor),
+        'data' => $nested,
+    ]), PolicyTransportHydrationProbeCommand::class))
+        ->toThrow(TransportException::class, 'maximum JSON nesting depth')
+        ->and(PolicyTransportHydrationProbeCommand::$constructions)->toBe(0);
 });
 
 it('rejects malformed or obsolete actor-aware wire formats', function (
