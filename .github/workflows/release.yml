@@ -44,7 +44,7 @@ jobs:
         shell: bash
         run: |
           composer config --json repositories.componenta-policy '{"type":"path","url":".ci/policy","options":{"versions":{"componenta/policy":"2.0.0"}}}'
-          composer config --json repositories.componenta-cqrs-transport '{"type":"path","url":".ci/cqrs-transport","options":{"versions":{"componenta/cqrs-transport":"3.1.0"}}}'
+          composer config --json repositories.componenta-cqrs-transport '{"type":"path","url":".ci/cqrs-transport","options":{"versions":{"componenta/cqrs-transport":"4.0.0"}}}'
       - name: Select CQRS version
         run: composer require --no-update "componenta/cqrs:${{ matrix.cqrs }}"
       - name: Install dependency matrix
@@ -152,7 +152,7 @@ jobs:
           try {
               (new Componenta\CQRS\Policy\Transport\ConfigProvider())();
           } catch (LogicException $e) {
-              if (!str_contains($e->getMessage(), "3.1 or newer")) {
+              if (!str_contains($e->getMessage(), "4.0 or newer")) {
                   throw $e;
               }
               exit(0);
