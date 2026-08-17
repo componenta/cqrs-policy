@@ -20,7 +20,7 @@ use Componenta\CQRS\Tests\Fixture\FakeActor;
 use Componenta\CQRS\Tests\Fixture\FakeContainer;
 use Componenta\Identity\UuidInterface;
 use Componenta\Policy\Actor\ActorAwareInterface;
-use Componenta\Policy\Actor\ActorInterface;
+use Componenta\Policy\Actor\Guest;
 use Componenta\Policy\Context\ContextInterface;
 use Componenta\Policy\Exception\DenyReason;
 use Componenta\Policy\PolicyEnforcer;
@@ -30,7 +30,7 @@ use Componenta\Policy\Provider\ArrayPolicyProvider;
 final readonly class PolicyTransportWorkerCommand implements ActorAwareInterface
 {
     public function __construct(
-        public ActorInterface $actor,
+        public object $actor,
         public int $id,
     ) {}
 }
@@ -40,9 +40,9 @@ final class PolicyTransportWorkerRepository implements ActorRepositoryInterface
     /** @var list<string> */
     public array $requested = [];
 
-    public function __construct(public ?ActorInterface $actor) {}
+    public function __construct(public ?object $actor) {}
 
-    public function findByUuid(UuidInterface $uuid): ?ActorInterface
+    public function findByUuid(UuidInterface $uuid): ?object
     {
         $this->requested[] = $uuid->toString();
 
@@ -199,7 +199,37 @@ it('restores the current repository actor before the worker redispatches through
         ->and($transport->rejected)->toBe([]);
 });
 
-it('rejects the delivery without dispatch when the transported actor cannot be restored', function (): void {
+it('round-trips a guest command through the worker without repository lookup', function (): void {
+    $policy = new PolicyTransportWorkerPolicy();
+    $bus = new PolicyTransportWorkerBus(policyTransportWorkerMiddleware($policy));
+    $repository = new PolicyTransportWorkerRepository(null);
+    $serializer = new ActorAwareJsonCommandSerializer($repository);
+    $command = new PolicyTransportWorkerCommand(new Guest(), 7);
+    $envelope = new Envelope(
+        operationId: 'operation-guest-round-trip',
+        commandClass: PolicyTransportWorkerCommand::class,
+        payload: $serializer->serialize($command),
+        receiptHandle: 'receipt-guest',
+    );
+    $transport = new PolicyTransportWorkerTransport($envelope);
+    $worker = new CommandWorker(
+        bus: $bus,
+        serializer: $serializer,
+        transport: $transport,
+        commands: new PolicyTransportWorkerMetadata(),
+    );
+
+    expect($worker->processOne())->toBeTrue()
+        ->and($bus->commands)->toHaveCount(1)
+        ->and($bus->commands[0]->actor)->toBeInstanceOf(Guest::class)
+        ->and($policy->actors)->toHaveCount(1)
+        ->and($policy->actors[0])->toBe($bus->commands[0]->actor)
+        ->and($repository->requested)->toBe([])
+        ->and($transport->acknowledged)->toBe([$envelope])
+        ->and($transport->rejected)->toBe([]);
+});
+
+it('rejects the delivery without dispatch when an identity actor cannot be restored', function (): void {
     $actor = new FakeActor(1);
     $policy = new PolicyTransportWorkerPolicy();
     $bus = new PolicyTransportWorkerBus(policyTransportWorkerMiddleware($policy));
