@@ -91,7 +91,9 @@ JsonCommandSerializer
 
 The actor-aware serializer implements both `CommandSerializerInterface` and `CommandSerializerSupportInterface` and owns only `ActorAwareInterface` command types. It contains no fallback logic of its own. Ordinary commands reach the broad JSON serializer through the composite.
 
-Applications that need another command or actor wire format register their own serializer ahead of the actor-aware serializer in an application-owned composite. A serializer failure is final; selection never falls through after malformed payload, missing actor, or another validation error.
+Composite support must be stable for the command class: a serializer must make the same support decision for an instance and for that instance's class name, because deserialization has no command instance yet. Support predicates therefore must not depend on actor value or other per-instance state.
+
+Applications that need another command or actor wire format register their own serializer ahead of the actor-aware serializer in an application-owned composite. Such a serializer owns complete command classes and must understand every wire variant it can receive for those classes. A serializer failure is final; selection never falls through after malformed payload, missing actor, or another validation error.
 
 ### Standard actor references
 
