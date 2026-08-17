@@ -7,15 +7,30 @@ use Componenta\CQRS\Command\Transport\TransportException;
 use Componenta\CQRS\Policy\Transport\ActorAwareJsonCommandSerializer;
 use Componenta\CQRS\Policy\Transport\ActorRepositoryInterface;
 use Componenta\CQRS\Tests\Fixture\FakeActor;
+use Componenta\Identity\IdentityInterface;
+use Componenta\Identity\Uuid;
 use Componenta\Identity\UuidInterface;
 use Componenta\Policy\Actor\ActorAwareInterface;
-use Componenta\Policy\Actor\ActorInterface;
+use Componenta\Policy\Actor\Guest;
+
+final readonly class PolicyTransportIdentityActor implements IdentityInterface
+{
+    public UuidInterface $uuid;
+
+    public function __construct(int $id)
+    {
+        $this->uuid = Uuid::fromString(sprintf(
+            '00000000-0000-7000-8000-%012d',
+            $id,
+        ));
+    }
+}
 
 final readonly class PolicyTransportActorCommand implements ActorAwareInterface
 {
     /** @param list<string> $tags */
     public function __construct(
-        public ActorInterface $actor,
+        public object $actor,
         public int $id,
         public array $tags = [],
     ) {}
@@ -24,17 +39,17 @@ final readonly class PolicyTransportActorCommand implements ActorAwareInterface
 final readonly class PolicyTransportDefaultActorCommand implements ActorAwareInterface
 {
     public function __construct(
-        public ActorInterface $actor = new FakeActor(9),
+        public object $actor = new FakeActor(9),
     ) {}
 }
 
 final class PolicyTransportActorReplacingCommand implements ActorAwareInterface
 {
-    public ActorInterface $actor;
+    public object $actor;
 
-    public function __construct(ActorInterface $actor)
+    public function __construct(object $actor)
     {
-        $this->actor = new FakeActor(1);
+        $this->actor = new PolicyTransportIdentityActor(1);
     }
 }
 
@@ -43,7 +58,7 @@ final class PolicyTransportStaticPropertyCommand implements ActorAwareInterface
     public static string $global = 'must-not-leak';
 
     public function __construct(
-        public ActorInterface $actor,
+        public object $actor,
         public int $id,
     ) {}
 }
@@ -61,7 +76,7 @@ final class PolicyTransportHookedPropertyCommand implements ActorAwareInterface
     }
 
     public function __construct(
-        public ActorInterface $actor,
+        public object $actor,
         string $value,
     ) {}
 }
@@ -69,7 +84,7 @@ final class PolicyTransportHookedPropertyCommand implements ActorAwareInterface
 final readonly class PolicyTransportStrictTypesCommand implements ActorAwareInterface
 {
     public function __construct(
-        public ActorInterface $actor,
+        public object $actor,
         public int $id,
         public float $ratio,
         public string|bool|null $label,
@@ -81,7 +96,7 @@ final class PolicyTransportCallableCommand implements ActorAwareInterface
     public mixed $callback;
 
     public function __construct(
-        public ActorInterface $actor,
+        public object $actor,
         callable $callback,
     ) {
         $this->callback = $callback;
@@ -91,7 +106,7 @@ final class PolicyTransportCallableCommand implements ActorAwareInterface
 final readonly class PolicyTransportStringCapabilityCommand implements ActorAwareInterface
 {
     public function __construct(
-        public ActorInterface $actor,
+        public object $actor,
         public string $callback,
     ) {}
 }
@@ -99,7 +114,7 @@ final readonly class PolicyTransportStringCapabilityCommand implements ActorAwar
 final readonly class PolicyTransportObjectPropertyCommand implements ActorAwareInterface
 {
     public function __construct(
-        public ActorInterface $actor,
+        public object $actor,
         public DateTimeImmutable $at,
     ) {}
 }
@@ -107,7 +122,7 @@ final readonly class PolicyTransportObjectPropertyCommand implements ActorAwareI
 final readonly class PolicyTransportPrivateStateCommand implements ActorAwareInterface
 {
     public function __construct(
-        public ActorInterface $actor,
+        public object $actor,
         private string $secret,
     ) {}
 }
@@ -118,7 +133,7 @@ final class PolicyTransportVariadicCommand implements ActorAwareInterface
     public array $values;
 
     public function __construct(
-        public ActorInterface $actor,
+        public object $actor,
         string ...$values,
     ) {
         $this->values = $values;
@@ -135,9 +150,9 @@ final class PolicyTransportActorRepository implements ActorRepositoryInterface
     /** @var list<string> */
     public array $requested = [];
 
-    public function __construct(public ?ActorInterface $actor) {}
+    public function __construct(public ?object $actor) {}
 
-    public function findByUuid(UuidInterface $uuid): ?ActorInterface
+    public function findByUuid(UuidInterface $uuid): ?object
     {
         $this->requested[] = $uuid->toString();
 
@@ -170,9 +185,9 @@ final class PolicyTransportFallbackSerializer implements CommandSerializerInterf
     }
 }
 
-it('round-trips actor-aware commands through versioned, reordered, and legacy payloads', function (): void {
-    $originalActor = new FakeActor(1);
-    $currentActor = new FakeActor(1);
+it('round-trips an identifiable actor that does not implement the legacy actor composite', function (): void {
+    $originalActor = new PolicyTransportIdentityActor(1);
+    $currentActor = new PolicyTransportIdentityActor(1);
     $repository = new PolicyTransportActorRepository($currentActor);
     $serializer = new ActorAwareJsonCommandSerializer($repository);
     $command = new PolicyTransportActorCommand($originalActor, 42, ['one', 'two']);
@@ -234,8 +249,21 @@ it('delegates non-actor-aware commands to the standard serializer path', functio
         ]);
 });
 
+it('rejects a non-identifiable policy actor at the transport boundary', function (): void {
+    $serializer = new ActorAwareJsonCommandSerializer(
+        new PolicyTransportActorRepository(null),
+    );
+
+    expect(fn() => $serializer->serialize(
+        new PolicyTransportActorCommand(new Guest(), 42),
+    ))->toThrow(
+        TransportException::class,
+        IdentityInterface::class,
+    );
+});
+
 it('ignores static properties on actor-aware commands', function (): void {
-    $actor = new FakeActor(1);
+    $actor = new PolicyTransportIdentityActor(1);
     $payload = (new ActorAwareJsonCommandSerializer(
         new PolicyTransportActorRepository($actor),
     ))->serialize(new PolicyTransportStaticPropertyCommand($actor, 9));
@@ -248,7 +276,7 @@ it('ignores static properties on actor-aware commands', function (): void {
 
 it('rejects hooked properties without invoking their getters', function (): void {
     PolicyTransportHookedPropertyCommand::$reads = 0;
-    $actor = new FakeActor(1);
+    $actor = new PolicyTransportIdentityActor(1);
     $serializer = new ActorAwareJsonCommandSerializer(
         new PolicyTransportActorRepository($actor),
     );
@@ -260,7 +288,7 @@ it('rejects hooked properties without invoking their getters', function (): void
 });
 
 it('uses strict PHP type semantics on the actor-aware path', function (): void {
-    $actor = new FakeActor(1);
+    $actor = new PolicyTransportIdentityActor(1);
     $serializer = new ActorAwareJsonCommandSerializer(
         new PolicyTransportActorRepository($actor),
     );
@@ -284,7 +312,7 @@ it('rejects scalar coercion and invalid union members on the actor-aware path', 
     array $data,
     string $message,
 ): void {
-    $actor = new FakeActor(1);
+    $actor = new PolicyTransportIdentityActor(1);
     $serializer = new ActorAwareJsonCommandSerializer(
         new PolicyTransportActorRepository($actor),
     );
@@ -314,7 +342,7 @@ it('rejects scalar coercion and invalid union members on the actor-aware path', 
 ]);
 
 it('rejects executable capability types before serializing actor-aware commands', function (): void {
-    $actor = new FakeActor(1);
+    $actor = new PolicyTransportIdentityActor(1);
     $serializer = new ActorAwareJsonCommandSerializer(
         new PolicyTransportActorRepository($actor),
     );
@@ -328,7 +356,7 @@ it('rejects executable capability types before serializing actor-aware commands'
 });
 
 it('keeps executable-looking strings as ordinary actor-aware command data', function (): void {
-    $actor = new FakeActor(1);
+    $actor = new PolicyTransportIdentityActor(1);
     $serializer = new ActorAwareJsonCommandSerializer(
         new PolicyTransportActorRepository($actor),
     );
@@ -343,7 +371,7 @@ it('keeps executable-looking strings as ordinary actor-aware command data', func
 });
 
 it('fails closed when the transported actor no longer exists', function (): void {
-    $actor = new FakeActor(1);
+    $actor = new PolicyTransportIdentityActor(1);
     $serializer = new ActorAwareJsonCommandSerializer(
         new PolicyTransportActorRepository(null),
     );
@@ -360,6 +388,21 @@ it('fails closed when the transported actor no longer exists', function (): void
         ->toThrow(TransportException::class, 'was not found');
 });
 
+it('requires the repository result to be identifiable', function (): void {
+    $requested = new PolicyTransportIdentityActor(1);
+    $serializer = new ActorAwareJsonCommandSerializer(
+        new PolicyTransportActorRepository(new Guest()),
+    );
+    $payload = json_encode([
+        'actor' => $requested->uuid->toString(),
+        'id' => 42,
+        'tags' => [],
+    ], JSON_THROW_ON_ERROR);
+
+    expect(fn() => $serializer->deserialize($payload, PolicyTransportActorCommand::class))
+        ->toThrow(TransportException::class, 'non-identifiable actor');
+});
+
 it('requires an actor UUID even when the command constructor has a default actor', function (): void {
     $serializer = new ActorAwareJsonCommandSerializer(
         new PolicyTransportActorRepository(new FakeActor(9)),
@@ -374,7 +417,7 @@ it('requires an actor UUID even when the command constructor has a default actor
 });
 
 it('rejects a constructor that replaces the repository actor with another instance of the same identity', function (): void {
-    $actor = new FakeActor(1);
+    $actor = new PolicyTransportIdentityActor(1);
     $serializer = new ActorAwareJsonCommandSerializer(
         new PolicyTransportActorRepository($actor),
     );
@@ -390,8 +433,8 @@ it('rejects a constructor that replaces the repository actor with another instan
 });
 
 it('rejects an actor returned for a different UUID', function (): void {
-    $requested = new FakeActor(1);
-    $different = new FakeActor(2);
+    $requested = new PolicyTransportIdentityActor(1);
+    $different = new PolicyTransportIdentityActor(2);
     $serializer = new ActorAwareJsonCommandSerializer(
         new PolicyTransportActorRepository($different),
     );
@@ -412,7 +455,7 @@ it('rejects malformed actor references and invalid payload envelopes', function 
     mixed $payload,
     string $message,
 ): void {
-    $actor = new FakeActor(1);
+    $actor = new PolicyTransportIdentityActor(1);
     $serializer = new ActorAwareJsonCommandSerializer(
         new PolicyTransportActorRepository($actor),
     );
@@ -449,7 +492,7 @@ it('rejects malformed actor references and invalid payload envelopes', function 
         'tags' => [],
     ], 'not a valid UUID'],
     'unknown field' => [[
-        'actor' => (new FakeActor(1))->uuid->toString(),
+        'actor' => (new PolicyTransportIdentityActor(1))->uuid->toString(),
         'id' => 42,
         'tags' => [],
         'unexpected' => true,
@@ -464,23 +507,29 @@ it('rejects unsupported actor-aware command shapes', function (
 })->with([
     'nested object property' => [
         fn() => (new ActorAwareJsonCommandSerializer(
-            new PolicyTransportActorRepository(new FakeActor(1)),
+            new PolicyTransportActorRepository(new PolicyTransportIdentityActor(1)),
         ))->serialize(new PolicyTransportObjectPropertyCommand(
-            new FakeActor(1),
+            new PolicyTransportIdentityActor(1),
             new DateTimeImmutable(),
         )),
         'configure a custom serializer',
     ],
     'private constructor-backed state' => [
         fn() => (new ActorAwareJsonCommandSerializer(
-            new PolicyTransportActorRepository(new FakeActor(1)),
-        ))->serialize(new PolicyTransportPrivateStateCommand(new FakeActor(1), 'secret')),
+            new PolicyTransportActorRepository(new PolicyTransportIdentityActor(1)),
+        ))->serialize(new PolicyTransportPrivateStateCommand(
+            new PolicyTransportIdentityActor(1),
+            'secret',
+        )),
         'to be public',
     ],
     'variadic constructor' => [
         fn() => (new ActorAwareJsonCommandSerializer(
-            new PolicyTransportActorRepository(new FakeActor(1)),
-        ))->serialize(new PolicyTransportVariadicCommand(new FakeActor(1), 'one')),
+            new PolicyTransportActorRepository(new PolicyTransportIdentityActor(1)),
+        ))->serialize(new PolicyTransportVariadicCommand(
+            new PolicyTransportIdentityActor(1),
+            'one',
+        )),
         'variadic or by-reference',
     ],
 ]);
