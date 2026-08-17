@@ -8,9 +8,9 @@ use Closure;
 use Componenta\CQRS\Command\Transport\CommandSerializerInterface;
 use Componenta\CQRS\Command\Transport\JsonCommandSerializer;
 use Componenta\CQRS\Command\Transport\TransportException;
+use Componenta\Identity\IdentityInterface;
 use Componenta\Identity\Uuid;
 use Componenta\Policy\Actor\ActorAwareInterface;
-use Componenta\Policy\Actor\ActorInterface;
 use JsonException;
 use ReflectionClass;
 use ReflectionIntersectionType;
@@ -22,9 +22,12 @@ use ReflectionUnionType;
 use Throwable;
 
 /**
- * JSON serializer that persists ActorAware command actors as UUID references.
+ * JSON serializer that persists identifiable ActorAware command actors as UUID
+ * references.
  *
- * Non-actor-aware commands are delegated to the standard strict serializer.
+ * Policy accepts any actor object, but asynchronous restoration requires a
+ * stable identity. Non-actor-aware commands are delegated to the standard
+ * strict serializer.
  */
 final readonly class ActorAwareJsonCommandSerializer implements CommandSerializerInterface
 {
@@ -177,12 +180,12 @@ final readonly class ActorAwareJsonCommandSerializer implements CommandSerialize
             }
 
             if ($name === self::ACTOR_FIELD) {
-                if (!$value instanceof ActorInterface) {
+                if (!$value instanceof IdentityInterface) {
                     throw new TransportException(sprintf(
-                        'Actor-aware command property "%s::$%s" must implement %s; %s given.',
+                        'Actor-aware command property "%s::$%s" must implement %s for transport serialization; %s given.',
                         $reflection->getName(),
                         $name,
-                        ActorInterface::class,
+                        IdentityInterface::class,
                         get_debug_type($value),
                     ));
                 }
@@ -343,7 +346,7 @@ final readonly class ActorAwareJsonCommandSerializer implements CommandSerialize
         }
     }
 
-    private function restoreActor(mixed $value, string $commandClass): ActorInterface
+    private function restoreActor(mixed $value, string $commandClass): object
     {
         if (!is_string($value)) {
             throw new TransportException(sprintf(
@@ -370,6 +373,15 @@ final readonly class ActorAwareJsonCommandSerializer implements CommandSerialize
                 'Actor "%s" required by transported command %s was not found.',
                 $uuid->toString(),
                 $commandClass,
+            ));
+        }
+
+        if (!$actor instanceof IdentityInterface) {
+            throw new TransportException(sprintf(
+                'Actor repository returned non-identifiable actor %s for UUID "%s"; %s is required.',
+                $actor::class,
+                $uuid->toString(),
+                IdentityInterface::class,
             ));
         }
 
