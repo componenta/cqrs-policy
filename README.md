@@ -23,29 +23,30 @@ The package keeps the middleware FQCNs stable:
 
 ## Command actors
 
-A command has exactly one identity source:
+A command has exactly one actor source:
 
 ```text
-command implements ActorAwareInterface -> command actor
+command implements ActorAwareInterface -> command actor object
 command does not implement it           -> Guest
 ```
 
-Command operation attributes and `ActorProviderInterface` are not actor sources. This makes synchronous, nested, replayed, and transported command execution use the same explicit contract.
+Command operation attributes and `ActorProviderInterface` are not command actor sources. This makes synchronous, nested, replayed, and transported command execution use the same explicit contract.
 
 ```php
 use Componenta\Policy\Actor\ActorAwareInterface;
-use Componenta\Policy\Actor\ActorInterface;
 
 final readonly class PublishPostCommand implements ActorAwareInterface
 {
     public function __construct(
-        public ActorInterface $actor,
+        public object $actor,
         public int $postId,
     ) {}
 }
 ```
 
-`Componenta\CQRS\Resolver\ActorResolver` extracts that actor and returns `null` for an anonymous message. Command policy middleware passes a `Guest` to the enforcer when the command is not actor-aware. Use an explicit allow policy for public commands; protected policies should deny `Guest`.
+`ActorAwareInterface::$actor` is intentionally `object`, matching `PolicyEnforcer` and `PolicyInterface`. A command can therefore carry a user, system subject, `Guest`, or any custom policy actor. Concrete policies validate only the capabilities they require.
+
+`Componenta\CQRS\Resolver\ActorResolver` extracts the object and returns `null` for an anonymous message. Command policy middleware creates a `Guest` only when the command is not actor-aware. Use an explicit allow policy for public commands; protected policies should deny actors that do not provide their required capabilities.
 
 Query policy keeps its per-call query-context behavior because queries do not cross the command transport boundary.
 
@@ -73,12 +74,16 @@ Bind an application implementation of:
 Componenta\CQRS\Policy\Transport\ActorRepositoryInterface
 ```
 
-The actor-aware serializer:
+Policy actors are broader than transport identities. The optional serializer therefore requires the actor of an asynchronous command to implement `Componenta\Identity\IdentityInterface`:
 
-- delegates ordinary commands to `JsonCommandSerializer`;
-- writes only the actor UUID for an `ActorAwareInterface` command;
-- loads the current actor from `ActorRepositoryInterface` during deserialization;
-- rejects missing actors, invalid UUIDs, repository identity mismatches, unknown fields, and unsupported command shapes.
+- ordinary non-actor-aware commands are delegated to `JsonCommandSerializer`;
+- an identifiable actor is written only as its UUID;
+- `ActorRepositoryInterface` loads the current actor object during deserialization;
+- the repository result must implement `IdentityInterface` and retain the requested UUID;
+- the restored command must retain the exact actor instance returned by the repository;
+- a non-identifiable actor such as the default `Guest` is valid for synchronous policy evaluation but is rejected for transport serialization.
+
+Missing actors, invalid UUIDs, repository identity mismatches, unknown fields, executable callables, and unsupported command shapes fail closed.
 
 The command worker and envelope remain unchanged: the serializer returns a complete command whose actor is already restored before the existing command bus is called.
 
