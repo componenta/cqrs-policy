@@ -21,6 +21,23 @@ final readonly class PolicyTransportActorCommand implements ActorAwareInterface
     ) {}
 }
 
+final readonly class PolicyTransportDefaultActorCommand implements ActorAwareInterface
+{
+    public function __construct(
+        public ActorInterface $actor = new FakeActor(9),
+    ) {}
+}
+
+final class PolicyTransportActorReplacingCommand implements ActorAwareInterface
+{
+    public ActorInterface $actor;
+
+    public function __construct(ActorInterface $actor)
+    {
+        $this->actor = new FakeActor(2);
+    }
+}
+
 final readonly class PolicyTransportAnonymousCommand
 {
     public function __construct(public int $id) {}
@@ -124,6 +141,35 @@ it('fails closed when the transported actor no longer exists', function (): void
 
     expect(fn() => $serializer->deserialize($payload, PolicyTransportActorCommand::class))
         ->toThrow(TransportException::class, 'was not found');
+});
+
+it('requires an actor UUID even when the command constructor has a default actor', function (): void {
+    $serializer = new ActorAwareJsonCommandSerializer(
+        new PolicyTransportActorRepository(new FakeActor(9)),
+    );
+    $payload = json_encode([
+        '__componenta_cqrs' => 1,
+        'data' => [],
+    ], JSON_THROW_ON_ERROR);
+
+    expect(fn() => $serializer->deserialize($payload, PolicyTransportDefaultActorCommand::class))
+        ->toThrow(TransportException::class, 'missing its actor UUID');
+});
+
+it('rejects a constructor that replaces the restored actor identity', function (): void {
+    $actor = new FakeActor(1);
+    $serializer = new ActorAwareJsonCommandSerializer(
+        new PolicyTransportActorRepository($actor),
+    );
+    $payload = json_encode([
+        '__componenta_cqrs' => 1,
+        'data' => [
+            'actor' => $actor->uuid->toString(),
+        ],
+    ], JSON_THROW_ON_ERROR);
+
+    expect(fn() => $serializer->deserialize($payload, PolicyTransportActorReplacingCommand::class))
+        ->toThrow(TransportException::class, 'replaced transported actor');
 });
 
 it('rejects an actor returned for a different UUID', function (): void {
