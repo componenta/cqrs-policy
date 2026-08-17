@@ -66,7 +66,7 @@ Public queries should use an explicit `#[Allow]` policy together with an actor s
 
 ## Asynchronous actor-aware commands
 
-Actor-aware transport integration requires a composite-capable `componenta/cqrs-transport` 3.1+ and is enabled explicitly:
+Actor-aware transport integration requires `componenta/cqrs-transport` 4.0+ and is enabled explicitly:
 
 ```php
 return [
@@ -78,7 +78,7 @@ return [
 ];
 ```
 
-The version requirement belongs to this optional provider, not the core package. Registering the transport integration with a transport version that lacks `CommandSerializerSupportInterface` / `CompositeCommandSerializer` fails immediately with a clear configuration error.
+The version requirement belongs to this optional provider, not the core package. Registering the transport integration with a transport version that lacks the current composite serializer API fails immediately with a clear configuration error.
 
 Bind an application implementation of:
 
