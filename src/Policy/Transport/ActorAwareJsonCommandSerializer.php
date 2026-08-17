@@ -25,12 +25,9 @@ use Throwable;
 /**
  * JSON serializer for commands that explicitly carry a policy actor.
  *
- * The standard actor reference model is intentionally small:
- * - {@see Guest} is encoded as a stateless tagged reference;
- * - {@see IdentityInterface} is encoded by UUID and restored through
- *   {@see ActorRepositoryInterface};
- * - application-specific actor kinds belong to an application serializer that
- *   is ordered before this serializer in a composite.
+ * Standard actor references are deliberately limited to Guest and
+ * IdentityInterface. Application-specific actor formats belong to a serializer
+ * ordered before this one in a CompositeCommandSerializer.
  */
 final readonly class ActorAwareJsonCommandSerializer implements CommandSerializerInterface, CommandSerializerSupportInterface
 {
@@ -135,10 +132,11 @@ final readonly class ActorAwareJsonCommandSerializer implements CommandSerialize
         foreach ($parameters as $name => $parameter) {
             if (array_key_exists($name, $data)) {
                 if ($name === self::ACTOR_FIELD) {
-                    $restoredActor = $this->restoreActor($data[$name], $commandClass);
-                    $value = $restoredActor;
+                    $value = $this->restoreActor($data[$name], $commandClass);
+                    $restoredActor = $value;
                 } else {
                     $value = $data[$name];
+                    $this->assertJsonValue($value, $name);
                 }
 
                 $this->assertParameterType($value, $parameter, $commandClass);
@@ -255,7 +253,6 @@ final readonly class ActorAwareJsonCommandSerializer implements CommandSerialize
     private function constructorParameters(ReflectionClass $reflection): array
     {
         $constructor = $reflection->getConstructor();
-
         if ($constructor === null) {
             return [];
         }
@@ -418,9 +415,10 @@ final readonly class ActorAwareJsonCommandSerializer implements CommandSerialize
         }
 
         if ($type === self::ACTOR_TYPE_IDENTITY) {
-            if (array_keys($reference) !== [self::ACTOR_TYPE_FIELD, self::ACTOR_UUID_FIELD]
-                && array_keys($reference) !== [self::ACTOR_UUID_FIELD, self::ACTOR_TYPE_FIELD]
-            ) {
+            $keys = array_keys($reference);
+            sort($keys);
+
+            if ($keys !== [self::ACTOR_TYPE_FIELD, self::ACTOR_UUID_FIELD]) {
                 throw new TransportException(sprintf(
                     'Identity actor reference for %s must contain exactly "%s" and "%s".',
                     $commandClass,
