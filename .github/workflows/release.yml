@@ -19,6 +19,12 @@ jobs:
         php: ['8.4', '8.5']
     steps:
       - uses: actions/checkout@v7
+      - name: Checkout policy v2 source
+        uses: actions/checkout@v7
+        with:
+          repository: componenta/policy
+          ref: main
+          path: .ci/policy
       - uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php }}
@@ -27,6 +33,11 @@ jobs:
       - name: Configure Composer authentication
         run: composer config --global github-oauth.github.com "${{ github.token }}"
       - run: composer validate --strict
+      - name: Use current policy v2 source
+        shell: bash
+        run: >-
+          composer config --json repositories.componenta-policy
+          '{"type":"path","url":".ci/policy","options":{"versions":{"componenta/policy":"2.0.0"}}}'
       - name: Resolve Composer cache directory
         id: composer-cache
         shell: bash
@@ -54,19 +65,7 @@ jobs:
 
             sleep $((attempt * 20))
           done
-      - name: Run package checks
-        shell: bash
-        run: |
-          set -euo pipefail
-          if php -r '$c=json_decode(file_get_contents("composer.json"), true, 512, JSON_THROW_ON_ERROR); exit(isset($c["scripts"]["test"]) ? 0 : 1);'; then
-            composer test
-          elif [ -d tests ] && [ -x vendor/bin/pest ]; then
-            vendor/bin/pest
-          elif [ -d tests ] && [ -x vendor/bin/phpunit ]; then
-            vendor/bin/phpunit tests
-          else
-            find src -type f -name '*.php' -print0 | xargs -0 -n1 php -l
-          fi
+      - run: composer test
 
   publish:
     if: github.event_name == 'push' && startsWith(github.event.head_commit.message, 'Release v')
