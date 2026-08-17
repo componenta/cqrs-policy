@@ -21,7 +21,7 @@ final class ConfigProvider extends BaseConfigProvider
             || !class_exists(CompositeCommandSerializer::class)
         ) {
             throw new LogicException(
-                'CQRS policy transport integration requires componenta/cqrs-transport 3.1 or newer.',
+                'CQRS policy transport integration requires componenta/cqrs-transport 4.0 or newer.',
             );
         }
 
