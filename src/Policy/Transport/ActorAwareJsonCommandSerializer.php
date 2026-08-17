@@ -117,9 +117,19 @@ final readonly class ActorAwareJsonCommandSerializer implements CommandSerialize
             ));
         }
 
+        $unknownFields = array_values(array_diff(array_keys($data), array_keys($parameters)));
+        if ($unknownFields !== []) {
+            throw new TransportException(sprintf(
+                'Payload for %s contains unknown field(s): %s.',
+                $commandClass,
+                implode(', ', $unknownFields),
+            ));
+        }
+
+        /** @var list<mixed> $arguments */
         $arguments = [];
+        /** @var array<string, mixed> $expectedState */
         $expectedState = [];
-        $remaining = $data;
         $restoredActor = null;
 
         foreach ($parameters as $name => $parameter) {
@@ -134,7 +144,6 @@ final readonly class ActorAwareJsonCommandSerializer implements CommandSerialize
                 $this->assertParameterType($value, $parameter, $commandClass);
                 $arguments[] = $value;
                 $expectedState[$name] = $value;
-                unset($remaining[$name]);
                 continue;
             }
 
@@ -147,14 +156,6 @@ final readonly class ActorAwareJsonCommandSerializer implements CommandSerialize
             }
 
             throw new TransportException("Missing required parameter '{$name}' for {$commandClass}.");
-        }
-
-        if ($remaining !== []) {
-            throw new TransportException(sprintf(
-                'Payload for %s contains unknown field(s): %s.',
-                $commandClass,
-                implode(', ', array_keys($remaining)),
-            ));
         }
 
         $command = $this->instantiate($reflection, $arguments);
