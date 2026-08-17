@@ -89,14 +89,25 @@ final readonly class ActorAwareJsonCommandSerializer implements CommandSerialize
         $properties = $this->assertSupportedProperties($reflection, $parameters);
         $this->assertActorShape($reflection, $parameters, $properties);
 
+        if (!array_key_exists(self::ACTOR_FIELD, $data)) {
+            throw new TransportException(sprintf(
+                'Transported actor-aware command %s is missing its actor UUID.',
+                $commandClass,
+            ));
+        }
+
         $arguments = [];
         $remaining = $data;
+        $restoredActor = null;
 
         foreach ($parameters as $name => $parameter) {
             if (array_key_exists($name, $data)) {
-                $value = $name === self::ACTOR_FIELD
-                    ? $this->restoreActor($data[$name], $commandClass)
-                    : $data[$name];
+                if ($name === self::ACTOR_FIELD) {
+                    $restoredActor = $this->restoreActor($data[$name], $commandClass);
+                    $value = $restoredActor;
+                } else {
+                    $value = $data[$name];
+                }
 
                 $this->assertParameterType($value, $parameter, $commandClass);
                 $arguments[] = $value;
@@ -122,11 +133,19 @@ final readonly class ActorAwareJsonCommandSerializer implements CommandSerialize
 
         $command = $this->instantiate($reflection, $arguments);
 
-        if (!$command instanceof ActorAwareInterface) {
+        if (!$command instanceof ActorAwareInterface || $restoredActor === null) {
             throw new TransportException(sprintf(
-                'Restored command %s no longer implements %s.',
+                'Restored command %s no longer satisfies its actor-aware contract.',
                 $commandClass,
-                ActorAwareInterface::class,
+            ));
+        }
+
+        if (!$command->actor->uuid->equals($restoredActor->uuid)) {
+            throw new TransportException(sprintf(
+                'Restored command %s replaced transported actor "%s" with "%s".',
+                $commandClass,
+                $restoredActor->uuid->toString(),
+                $command->actor->uuid->toString(),
             ));
         }
 
