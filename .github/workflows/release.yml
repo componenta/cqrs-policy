@@ -141,7 +141,7 @@ jobs:
           composer config --json repositories.componenta-policy
           '{"type":"path","url":".ci/policy","options":{"versions":{"componenta/policy":"2.0.0"}}}'
       - name: Select older optional transport
-        run: composer require --dev --no-update componenta/cqrs-transport:3.0.1
+        run: composer require --dev --no-update componenta/cqrs-transport:3.0.0
       - name: Install dependencies
         run: composer update --with-all-dependencies --no-interaction --prefer-dist --no-progress
       - name: Verify core works and optional integration rejects unsupported transport
