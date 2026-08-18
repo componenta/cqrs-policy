@@ -97,20 +97,20 @@ final readonly class PolicyMiddleware implements MiddlewareInterface
         return $next($query, $context);
     }
 
-    /** @throws AuthenticationRequiredException If no actor can be resolved. */
+    /**
+     * @throws AuthenticationRequiredException If no actor can be resolved.
+     * @throws InvalidArgumentException If an explicit actor override is not an object.
+     */
     private function resolveActor(object $query, ContextInterface $context, string $actionId): object
     {
         if ($context->hasAttribute(self::ATTR_ACTOR)) {
             $actor = $context->getAttribute(self::ATTR_ACTOR);
 
             if (!is_object($actor)) {
-                throw new AuthenticationRequiredException(
-                    $actionId,
-                    sprintf(
-                        "Invalid actor type in context: expected object, got '%s'",
-                        get_debug_type($actor),
-                    ),
-                );
+                throw new InvalidArgumentException(sprintf(
+                    'Query actor context attribute must be an object; got %s.',
+                    get_debug_type($actor),
+                ));
             }
 
             return $actor;
