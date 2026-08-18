@@ -5,35 +5,33 @@ declare(strict_types=1);
 namespace Componenta\CQRS\Query\Middleware;
 
 use Componenta\CQRS\Query\Context\ContextInterface;
-use Componenta\CQRS\Query\Exception\AuthenticationRequiredException;
 use Componenta\CQRS\Resolver\ActionIdResolver;
 use Componenta\CQRS\Resolver\ActionIdResolverInterface;
 use Componenta\Policy\Actor\ActorAwareInterface;
-use Componenta\Policy\Actor\ActorProviderInterface;
+use Componenta\Policy\Actor\Guest;
 use Componenta\Policy\Context\ContextInterface as PolicyContextInterface;
 use Componenta\Policy\PolicyEnforcer;
 use InvalidArgumentException;
 
 /**
- * Enforces query policies against the actor resolved for the current call.
+ * Enforces query policies against the actor explicitly carried by the query.
  *
- * Actor resolution priority:
- *  1. Per-call context key {@see self::ATTR_ACTOR}.
- *  2. {@see ActorAwareInterface} carried by the query.
- *  3. {@see ActorProviderInterface} supplied by the integration.
- *
- * A provider may return a concrete actor, {@see \Componenta\Policy\Actor\Guest}
- * for explicit anonymous access, or null when no actor can be resolved. Null is
- * not converted to Guest by this middleware.
+ * Actor resolution is intentionally identical to the command-side model:
+ * ActorAwareInterface queries use their explicit actor; every other query is
+ * evaluated as Guest. CQRS policy does not resolve ambient actors from context
+ * or an ActorProviderInterface.
  *
  * Action IDs are resolved through {@see ActionIdResolverInterface}; the default
  * resolver uses {@see \Componenta\Policy\ActionIdAwareInterface} when present
  * and otherwise falls back to the query class name.
  *
- * Public queries should use an explicit `#[Allow]` policy together with an
- * actor source that intentionally yields Guest. {@see self::ATTR_SKIP_POLICY}
- * is reserved for trusted technical flows where policy evaluation has already
- * happened or cannot be performed in the current process.
+ * Public queries normally omit ActorAwareInterface and use an explicit
+ * `#[Allow]` policy. Protected queries that run for an authenticated subject
+ * carry that subject explicitly through ActorAwareInterface.
+ *
+ * {@see self::ATTR_SKIP_POLICY} is reserved for trusted technical flows where
+ * policy evaluation has already happened or cannot be performed in the current
+ * process.
  *
  * @example Protected query carrying its actor explicitly
  * ```php
@@ -51,7 +49,7 @@ use InvalidArgumentException;
  * }
  * ```
  *
- * @example Public query when the configured ActorProvider returns Guest
+ * @example Public query evaluated as Guest
  * ```php
  * use Componenta\Policy\Policies\Allow;
  *
@@ -64,9 +62,6 @@ final readonly class PolicyMiddleware implements MiddlewareInterface
     /** Trusted technical escape hatch for one query dispatch. */
     public const string ATTR_SKIP_POLICY = '__skip_policy';
 
-    /** Per-call actor override. Value must be an object. */
-    public const string ATTR_ACTOR = '__actor';
-
     /** Policy-level context override. Value must be an array or policy context. */
     public const string ATTR_POLICY_CONTEXT = '__policy_context';
 
@@ -75,7 +70,6 @@ final readonly class PolicyMiddleware implements MiddlewareInterface
 
     public function __construct(
         private PolicyEnforcer $enforcer,
-        private ?ActorProviderInterface $actorProvider = null,
         private ActionIdResolverInterface $resolver = new ActionIdResolver(),
     ) {}
 
@@ -86,7 +80,9 @@ final readonly class PolicyMiddleware implements MiddlewareInterface
         }
 
         $actionId = $this->resolver->resolve($query);
-        $actor = $this->resolveActor($query, $context, $actionId);
+        $actor = $query instanceof ActorAwareInterface
+            ? $query->actor
+            : new Guest();
 
         $this->enforcer->enforce(
             $actionId,
@@ -95,48 +91,6 @@ final readonly class PolicyMiddleware implements MiddlewareInterface
         );
 
         return $next($query, $context);
-    }
-
-    /**
-     * @throws AuthenticationRequiredException If no actor can be resolved.
-     * @throws InvalidArgumentException If an explicit actor override is not an object.
-     */
-    private function resolveActor(object $query, ContextInterface $context, string $actionId): object
-    {
-        if ($context->hasAttribute(self::ATTR_ACTOR)) {
-            $actor = $context->getAttribute(self::ATTR_ACTOR);
-
-            if (!is_object($actor)) {
-                throw new InvalidArgumentException(sprintf(
-                    'Query actor context attribute must be an object; got %s.',
-                    get_debug_type($actor),
-                ));
-            }
-
-            return $actor;
-        }
-
-        if ($query instanceof ActorAwareInterface) {
-            return $query->actor;
-        }
-
-        if ($this->actorProvider !== null) {
-            $actor = $this->actorProvider->getActor();
-
-            if ($actor !== null) {
-                return $actor;
-            }
-
-            throw new AuthenticationRequiredException(
-                $actionId,
-                'ActorProvider returned null; no actor is available for policy evaluation',
-            );
-        }
-
-        throw new AuthenticationRequiredException(
-            $actionId,
-            'Query does not carry an actor and no ActorProvider is configured',
-        );
     }
 
     /** @return PolicyContextInterface|array<string, mixed> */
