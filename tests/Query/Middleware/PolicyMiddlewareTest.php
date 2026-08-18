@@ -8,11 +8,13 @@ use Componenta\CQRS\Tests\Fixture\FakeActor;
 use Componenta\CQRS\Tests\Fixture\FakeActorAwareQuery;
 use Componenta\CQRS\Tests\Fixture\FakeContainer;
 use Componenta\CQRS\Tests\Fixture\FakeQuery;
+use Componenta\CQRS\Tests\Fixture\GuardedPermission;
 use Componenta\Policy\Actor\Guest;
 use Componenta\Policy\Exception\AccessDeniedException;
 use Componenta\Policy\MissingPolicyBehavior;
 use Componenta\Policy\Policies\Allow;
 use Componenta\Policy\Policies\Deny;
+use Componenta\Policy\Policies\PermissionPolicy;
 use Componenta\Policy\PolicyEnforcer;
 use Componenta\Policy\Provider\ArrayPolicyProvider;
 
@@ -83,6 +85,15 @@ it('allows a public query through an explicit Allow policy as Guest', function (
 
     expect($middleware->handle(new FakeQuery(), new Context(), static fn() => 'public'))
         ->toBe('public');
+});
+
+it('denies a protected query without an explicit actor as Guest', function (): void {
+    $middleware = new PolicyMiddleware(makeEnforcer([
+        FakeQuery::class => new PermissionPolicy(new GuardedPermission('posts.view.any')),
+    ]));
+
+    expect(fn() => $middleware->handle(new FakeQuery(), new Context(), static fn() => 'protected'))
+        ->toThrow(AccessDeniedException::class);
 });
 
 it('propagates AccessDeniedException when the enforcer denies', function (): void {
