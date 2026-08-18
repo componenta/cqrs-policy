@@ -8,17 +8,16 @@ use Componenta\CQRS\Tests\Fixture\FakeActor;
 use Componenta\CQRS\Tests\Fixture\GuardedPermission;
 use Componenta\CQRS\Tests\Fixture\GuardedQueryWithOneOf;
 use Componenta\CQRS\Tests\Fixture\GuardedQueryWithPermission;
+use Componenta\DI\FactoryInterface;
 use Componenta\Policy\Exception\AccessDeniedException;
 use Componenta\Policy\Permission\PermissionCollection;
 use Componenta\Policy\PolicyEnforcer;
-use Componenta\DI\FactoryInterface;
-use Componenta\DI\ProxyType;
 use Componenta\Policy\Provider\AttributePolicyProvider;
 
 function enforcerWithAttributes(): PolicyEnforcer
 {
     $factory = new class implements FactoryInterface {
-        public function make(string $entry, array $params = [], ?ProxyType $type = null): object
+        public function make(string $entry, array $params = []): object
         {
             return new $entry(...$params);
         }
@@ -68,4 +67,3 @@ it('denies #[OneOf] when actor satisfies no branch', function () {
     expect(fn() => $middleware->handle($query, new Context(), static fn() => 'x'))
         ->toThrow(AccessDeniedException::class);
 });
-
