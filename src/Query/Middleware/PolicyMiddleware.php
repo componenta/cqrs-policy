@@ -51,7 +51,7 @@ use InvalidArgumentException;
  * }
  * ```
  *
- * @example Public query with an explicitly allowing policy
+ * @example Public query when the configured ActorProvider returns Guest
  * ```php
  * use Componenta\Policy\Policies\Allow;
  *
