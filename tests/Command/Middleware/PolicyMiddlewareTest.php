@@ -9,11 +9,14 @@ use Componenta\CQRS\Command\OperationInterface;
 use Componenta\CQRS\Command\OperationResult;
 use Componenta\CQRS\Tests\Fixture\FakeActor;
 use Componenta\CQRS\Tests\Fixture\FakeContainer;
+use Componenta\CQRS\Tests\Fixture\GuardedPermission;
 use Componenta\Policy\Actor\ActorAwareInterface;
 use Componenta\Policy\Actor\Guest;
 use Componenta\Policy\Context\ContextInterface;
+use Componenta\Policy\Exception\AccessDeniedException;
 use Componenta\Policy\Exception\DenyReason;
 use Componenta\Policy\MissingPolicyBehavior;
+use Componenta\Policy\Policies\PermissionPolicy;
 use Componenta\Policy\PolicyEnforcer;
 use Componenta\Policy\PolicyInterface;
 use Componenta\Policy\Provider\ArrayPolicyProvider;
@@ -142,6 +145,19 @@ it('treats a non-actor-aware command as anonymous and ignores actor-shaped attri
 
     expect($capturedActor)->toBeInstanceOf(Guest::class)
         ->and($capturedActor)->not->toBe($contextActor);
+});
+
+it('denies a protected non-actor-aware command as Guest', function (): void {
+    $middleware = new PolicyMiddleware(makeCommandPolicyEnforcer([
+        CommandPolicyPlainCommand::class => new PermissionPolicy(
+            new GuardedPermission('posts.update.any'),
+        ),
+    ]));
+
+    expect(fn() => $middleware->execute(
+        Operation::create(new CommandPolicyPlainCommand()),
+        commandPolicyTerminal(),
+    ))->toThrow(AccessDeniedException::class);
 });
 
 it('adds command and operation to array policy context', function (): void {
