@@ -23,16 +23,16 @@ The core package exposes:
 
 The core policy integration does not require `componenta/cqrs-transport`. It may coexist with an older transport version when actor-aware transport integration is not registered.
 
-## Command actors
+## CQRS actors
 
-A command has exactly one actor source:
+Commands and queries use one actor model:
 
 ```text
-command implements ActorAwareInterface -> command actor object
-command does not implement it           -> Guest
+message implements ActorAwareInterface -> message actor object
+message does not implement it           -> Guest
 ```
 
-Command operation attributes and `ActorProviderInterface` are not command actor sources. This keeps synchronous, nested, replayed, and transported command execution on the same explicit contract.
+CQRS policy does not resolve actors from operation/query context and does not use `ActorProviderInterface` as an ambient authentication source. This keeps synchronous, nested, replayed, CLI, and transported execution on the same explicit contract.
 
 ```php
 use Componenta\Policy\Actor\ActorAwareInterface;
@@ -46,23 +46,22 @@ final readonly class PublishPostCommand implements ActorAwareInterface
 }
 ```
 
-`ActorAwareInterface::$actor` is intentionally `object`, matching `PolicyEnforcer` and `PolicyInterface`. There is no universal composite actor interface. Domain subjects implement only the capabilities their policies require.
+```php
+use Componenta\Policy\Actor\ActorAwareInterface;
 
-`Guest` is a first-class anonymous policy actor. Built-in protected policies deny Guest normally; unrelated objects that do not implement the capability expected by a policy remain policy integration errors.
-
-## Query actors
-
-Queries retain a per-call actor resolution chain:
-
-```text
-query context ATTR_ACTOR
--> ActorAwareInterface query
--> ActorProviderInterface
+final readonly class GetMyOrders implements ActorAwareInterface
+{
+    public function __construct(
+        public object $actor,
+    ) {}
+}
 ```
 
-`ActorProviderInterface` may return a concrete actor, `Guest` when that provider explicitly represents anonymous access, or `null` when no actor can be resolved. Query middleware does not convert `null` to Guest; unresolved actors produce `Query\Exception\AuthenticationRequiredException`.
+`ActorAwareInterface::$actor` is intentionally `object`, matching `PolicyEnforcer` and `PolicyInterface`. There is no universal composite actor interface. Domain subjects implement only the capabilities their policies require.
 
-Public queries should use an explicit `#[Allow]` policy together with an actor source that intentionally supplies Guest. `ATTR_SKIP_POLICY` is reserved for trusted technical flows, not the ordinary public-access model.
+`Guest` is the built-in anonymous policy actor. A public query can simply omit `ActorAwareInterface` and use an explicit `#[Allow]` policy. A protected query without an explicit actor is evaluated as Guest and is denied normally by permission/role/owner policies.
+
+`ATTR_SKIP_POLICY` remains only a trusted technical escape hatch. It is not an authentication mechanism.
 
 ## Asynchronous actor-aware commands
 
@@ -141,7 +140,7 @@ Serialization semantics:
 - an identity repository result must implement `IdentityInterface` and retain the requested UUID;
 - the restored command must retain the exact actor instance produced by restoration;
 - constructor reconstruction must not change other serialized command state;
-- recursive/excessively deep arrays, unknown fields, executable callables, hooked/virtual properties, private state, dynamic properties, and unsupported actor kinds fail closed;
+- recursive/excessively deep arrays, unknown fields, executable callables, hooked/virtual properties, private state including inherited private state, dynamic properties, and unsupported actor kinds fail closed;
 - dynamic runtime state is rejected both before serialization and after command reconstruction instead of being silently dropped;
 - non-actor payload values and nesting are validated before command construction.
 
