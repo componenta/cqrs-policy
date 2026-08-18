@@ -141,7 +141,7 @@ it('ATTR_ACTOR overrides query and provider actors for one call', function (): v
     expect($capturedActor)->toBe($override);
 });
 
-it('rejects a non-object actor override', function (): void {
+it('rejects a non-object actor override as invalid query context', function (): void {
     $query = new FakeActorAwareQuery(new FakeActor(1));
     $middleware = new PolicyMiddleware(makeEnforcer([
         FakeActorAwareQuery::class => new Allow(),
@@ -151,7 +151,7 @@ it('rejects a non-object actor override', function (): void {
         $query,
         new Context([PolicyMiddleware::ATTR_ACTOR => 'not-an-object']),
         static fn() => 'ok',
-    ))->toThrow(AuthenticationRequiredException::class);
+    ))->toThrow(InvalidArgumentException::class, 'must be an object');
 });
 
 it('passes the query into the policy context under ATTR_QUERY', function (): void {
