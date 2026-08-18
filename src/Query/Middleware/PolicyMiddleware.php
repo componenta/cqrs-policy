@@ -18,8 +18,7 @@ use InvalidArgumentException;
  *
  * Actor resolution is intentionally identical to the command-side model:
  * ActorAwareInterface queries use their explicit actor; every other query is
- * evaluated as Guest. CQRS policy does not resolve ambient actors from context
- * or an ActorProviderInterface.
+ * evaluated as Guest. CQRS policy does not resolve an ambient actor.
  *
  * Action IDs are resolved through {@see ActionIdResolverInterface}; the default
  * resolver uses {@see \Componenta\Policy\ActionIdAwareInterface} when present
