@@ -325,6 +325,7 @@ final readonly class ActorAwareJsonCommandSerializer implements CommandSerialize
      */
     private function assertSupportedProperties(ReflectionClass $reflection, array $parameters): array
     {
+        $this->assertNoInheritedPrivateProperties($reflection);
         $properties = [];
 
         foreach ($reflection->getProperties() as $property) {
@@ -372,6 +373,31 @@ final readonly class ActorAwareJsonCommandSerializer implements CommandSerialize
         }
 
         return $properties;
+    }
+
+    /** @param ReflectionClass<object> $reflection */
+    private function assertNoInheritedPrivateProperties(ReflectionClass $reflection): void
+    {
+        $ancestor = $reflection->getParentClass();
+
+        while ($ancestor !== false) {
+            foreach ($ancestor->getProperties(ReflectionProperty::IS_PRIVATE) as $property) {
+                if ($property->isStatic()
+                    || $property->getDeclaringClass()->getName() !== $ancestor->getName()
+                ) {
+                    continue;
+                }
+
+                throw new TransportException(sprintf(
+                    'Actor-aware JSON serialization does not support inherited private property "%s::$%s" on %s; register a custom serializer.',
+                    $ancestor->getName(),
+                    $property->getName(),
+                    $reflection->getName(),
+                ));
+            }
+
+            $ancestor = $ancestor->getParentClass();
+        }
     }
 
     /**
@@ -744,8 +770,7 @@ final readonly class ActorAwareJsonCommandSerializer implements CommandSerialize
                 'Failed to instantiate command %s: %s',
                 $reflection->getName(),
                 $exception->getMessage(),
-            ), previous: $exception,
-        );
+            ), previous: $exception);
         }
     }
 }
