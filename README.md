@@ -95,7 +95,7 @@ JsonCommandSerializer
 
 The actor-aware serializer implements both `CommandSerializerInterface` and `CommandSerializerSupportInterface` and owns only `ActorAwareInterface` command types. It contains no fallback logic of its own. Ordinary commands reach the broad JSON serializer through the composite.
 
-Composite support must be stable for the command class: a serializer must make the same support decision for an instance and for that instance's class name, because deserialization has no command instance yet. Support predicates therefore must not depend on actor value or other per-instance state.
+Composite support must be stable for the command class: a serializer must make the same support decision for an instance and for that instance's class name, because deserialization has no command instance yet. The composite verifies this invariant when serializing. Support predicates must therefore be deterministic, side-effect free, and independent of actor value or other per-instance state.
 
 If the same command class can carry a standard actor in one instance and an application-specific actor in another, a custom serializer cannot claim only the latter instance. It must own that entire command class and understand every wire variant it accepts, or the application should use distinct command types.
 
@@ -141,7 +141,8 @@ Serialization semantics:
 - an identity repository result must implement `IdentityInterface` and retain the requested UUID;
 - the restored command must retain the exact actor instance produced by restoration;
 - constructor reconstruction must not change other serialized command state;
-- recursive/excessively deep arrays, unknown fields, executable callables, hooked/virtual properties, private state, and unsupported actor kinds fail closed;
+- recursive/excessively deep arrays, unknown fields, executable callables, hooked/virtual properties, private state, dynamic properties, and unsupported actor kinds fail closed;
+- dynamic runtime state is rejected both before serialization and after command reconstruction instead of being silently dropped;
 - non-actor payload values and nesting are validated before command construction.
 
 The actor UUID is a persistence reference, not an authentication credential. The standard integration assumes queued payloads originate from trusted producers and are protected against unauthorized modification. If that assumption does not hold, integrity protection must cover the complete envelope/payload rather than only the actor reference.
