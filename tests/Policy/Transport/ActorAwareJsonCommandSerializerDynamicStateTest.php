@@ -29,6 +29,19 @@ final class ActorAwareDynamicHydrationCommand implements ActorAwareInterface
     }
 }
 
+class ActorAwareInheritedPrivateStateBase
+{
+    private string $secret = 'hidden';
+}
+
+final class ActorAwareInheritedPrivateStateCommand extends ActorAwareInheritedPrivateStateBase implements ActorAwareInterface
+{
+    public function __construct(
+        public object $actor,
+        public int $id,
+    ) {}
+}
+
 final readonly class ActorAwareDynamicStateRepository implements ActorRepositoryInterface
 {
     public function findByUuid(UuidInterface $uuid): ?object
@@ -60,4 +73,22 @@ it('rejects dynamic state created while reconstructing an actor-aware command', 
         $payload,
         ActorAwareDynamicHydrationCommand::class,
     ))->toThrow(TransportException::class, 'unsupported dynamic property(s): runtimeState');
+});
+
+it('rejects inherited private actor-aware state on serialization and reconstruction', function (): void {
+    $serializer = new ActorAwareJsonCommandSerializer(new ActorAwareDynamicStateRepository());
+
+    expect(fn() => $serializer->serialize(
+        new ActorAwareInheritedPrivateStateCommand(new Guest(), 1),
+    ))->toThrow(TransportException::class, 'inherited private property')
+        ->and(fn() => $serializer->deserialize(
+            json_encode([
+                '__componenta_cqrs' => 2,
+                'data' => [
+                    'actor' => ['type' => 'guest'],
+                    'id' => 1,
+                ],
+            ], JSON_THROW_ON_ERROR),
+            ActorAwareInheritedPrivateStateCommand::class,
+        ))->toThrow(TransportException::class, 'inherited private property');
 });
