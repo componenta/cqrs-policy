@@ -32,7 +32,7 @@ message implements ActorAwareInterface -> message actor object
 message does not implement it           -> Guest
 ```
 
-CQRS policy does not resolve actors from operation/query context and does not use `ActorProviderInterface` as an ambient authentication source. This keeps synchronous, nested, replayed, CLI, and transported execution on the same explicit contract.
+CQRS policy resolves the actor only from the message itself. When the message does not explicitly carry an actor, policy evaluation uses `Guest`. This keeps synchronous, nested, replayed, CLI, and transported execution on the same explicit contract.
 
 ```php
 use Componenta\Policy\Actor\ActorAwareInterface;
