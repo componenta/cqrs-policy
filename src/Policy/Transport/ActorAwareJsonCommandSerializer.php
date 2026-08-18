@@ -172,6 +172,7 @@ final readonly class ActorAwareJsonCommandSerializer implements CommandSerialize
             ));
         }
 
+        $this->assertNoDynamicProperties($command, $properties, $commandClass);
         $this->assertRoundTripState($command, $expectedState, $properties, $commandClass);
 
         return $command;
@@ -186,6 +187,7 @@ final readonly class ActorAwareJsonCommandSerializer implements CommandSerialize
         $parameters = $this->constructorParameters($reflection);
         $properties = $this->assertSupportedProperties($reflection, $parameters);
         $this->assertActorShape($reflection, $parameters, $properties);
+        $this->assertNoDynamicProperties($command, $properties, $reflection->getName());
         $data = [];
 
         foreach ($properties as $name => $property) {
@@ -388,6 +390,28 @@ final readonly class ActorAwareJsonCommandSerializer implements CommandSerialize
                 $reflection->getName(),
             ));
         }
+    }
+
+    /** @param array<string, ReflectionProperty> $properties */
+    private function assertNoDynamicProperties(
+        object $command,
+        array $properties,
+        string $commandClass,
+    ): void {
+        $dynamic = array_values(array_diff(
+            array_keys(get_object_vars($command)),
+            array_keys($properties),
+        ));
+
+        if ($dynamic === []) {
+            return;
+        }
+
+        throw new TransportException(sprintf(
+            'Actor-aware command %s contains unsupported dynamic property(s): %s.',
+            $commandClass,
+            implode(', ', $dynamic),
+        ));
     }
 
     private function restoreActor(mixed $value, string $commandClass): object
@@ -720,7 +744,8 @@ final readonly class ActorAwareJsonCommandSerializer implements CommandSerialize
                 'Failed to instantiate command %s: %s',
                 $reflection->getName(),
                 $exception->getMessage(),
-            ), previous: $exception);
+            ), previous: $exception,
+        );
         }
     }
 }
