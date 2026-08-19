@@ -16,8 +16,8 @@ use InvalidArgumentException;
 /** Enforces command policies against the actor explicitly carried by the command. */
 final readonly class PolicyMiddleware implements MiddlewareInterface
 {
-    /** Operation attribute key for the authorization context. */
-    public const string ATTR_CONTEXT = '__policy_context';
+    /** Operation attribute key for the policy context. */
+    public const string ATTR_POLICY_CONTEXT = '__policy_context';
 
     public const string ATTR_COMMAND = '__command';
 
@@ -57,7 +57,7 @@ final readonly class PolicyMiddleware implements MiddlewareInterface
     /** @return ContextInterface|array<string, mixed> */
     private function resolveContext(OperationInterface $operation): ContextInterface|array
     {
-        $context = $operation->attributes[self::ATTR_CONTEXT] ?? [];
+        $context = $operation->attributes[self::ATTR_POLICY_CONTEXT] ?? [];
 
         if (is_array($context)) {
             $context = self::normalizeArrayContext($context);
