@@ -8,7 +8,6 @@ use Componenta\Config\ContainerValue;
 use Componenta\CQRS\Command\Middleware\PolicyMiddleware;
 use Componenta\CQRS\Resolver\ActionIdResolver;
 use Componenta\CQRS\Resolver\ActionIdResolverInterface;
-use Componenta\CQRS\Resolver\ActorResolver;
 use Componenta\Policy\PolicyEnforcer;
 
 final class PolicyMiddlewareFactory
@@ -26,10 +25,6 @@ final class PolicyMiddlewareFactory
             enforcer: $container->get(
                 PolicyEnforcer::class,
                 PolicyEnforcer::class,
-            ),
-            actors: $container->get(
-                ActorResolver::class,
-                ActorResolver::class,
             ),
             resolver: $resolver,
         );
