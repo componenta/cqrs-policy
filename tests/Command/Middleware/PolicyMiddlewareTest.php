@@ -180,7 +180,7 @@ it('adds command and operation to array policy context', function (): void {
         CommandPolicyActorAwareCommand::class => $policy,
     ]));
     $operation = Operation::create($command, [
-        PolicyMiddleware::ATTR_CONTEXT => ['source' => 'test'],
+        PolicyMiddleware::ATTR_POLICY_CONTEXT => ['source' => 'test'],
     ]);
 
     $middleware->execute($operation, commandPolicyTerminal());
@@ -196,7 +196,7 @@ it('rejects an invalid command policy context value', function (): void {
         CommandPolicyActorAwareCommand::class => new Componenta\Policy\Policies\Allow(),
     ]));
     $operation = Operation::create($command, [
-        PolicyMiddleware::ATTR_CONTEXT => 'invalid',
+        PolicyMiddleware::ATTR_POLICY_CONTEXT => 'invalid',
     ]);
 
     expect(fn() => $middleware->execute($operation, commandPolicyTerminal()))
