@@ -7,7 +7,7 @@ namespace Componenta\CQRS\Command\Middleware;
 use Componenta\CQRS\Command\OperationInterface;
 use Componenta\CQRS\Resolver\ActionIdResolver;
 use Componenta\CQRS\Resolver\ActionIdResolverInterface;
-use Componenta\CQRS\Resolver\ActorResolver;
+use Componenta\Policy\Actor\ActorAwareInterface;
 use Componenta\Policy\Actor\Guest;
 use Componenta\Policy\Context\ContextInterface;
 use Componenta\Policy\PolicyEnforcer;
@@ -31,7 +31,6 @@ final readonly class PolicyMiddleware implements MiddlewareInterface
 
     public function __construct(
         private PolicyEnforcer $enforcer,
-        private ActorResolver $actors = new ActorResolver(),
         private ActionIdResolverInterface $resolver = new ActionIdResolver(),
     ) {}
 
@@ -42,7 +41,9 @@ final readonly class PolicyMiddleware implements MiddlewareInterface
         }
 
         $actionId = $this->resolver->resolve($operation->command);
-        $actor = $this->actors->resolve($operation->command) ?? new Guest();
+        $actor = $operation->command instanceof ActorAwareInterface
+            ? $operation->command->actor
+            : new Guest();
 
         $this->enforcer->enforce(
             $actionId,
@@ -53,9 +54,7 @@ final readonly class PolicyMiddleware implements MiddlewareInterface
         return $handler->handle($operation);
     }
 
-    /**
-     * @return ContextInterface|array<string, mixed>
-     */
+    /** @return ContextInterface|array<string, mixed> */
     private function resolveContext(OperationInterface $operation): ContextInterface|array
     {
         $context = $operation->attributes[self::ATTR_CONTEXT] ?? [];
