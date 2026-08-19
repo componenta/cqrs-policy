@@ -64,17 +64,7 @@ final readonly class ActorAwareJsonCommandSerializer implements CommandSerialize
         $reflection = new ReflectionClass($command);
         $data = $this->extractConstructorData($reflection, $command);
 
-        try {
-            return json_encode([
-                self::FORMAT_KEY => self::FORMAT_VERSION,
-                self::DATA_KEY => $data,
-            ], JSON_THROW_ON_ERROR);
-        } catch (JsonException $exception) {
-            throw new TransportException(
-                "Failed to serialize command: {$exception->getMessage()}",
-                previous: $exception,
-            );
-        }
+        return $this->encodeData($data);
     }
 
     public function deserialize(string $payload, string $commandClass): object
@@ -176,6 +166,33 @@ final readonly class ActorAwareJsonCommandSerializer implements CommandSerialize
         $this->assertRoundTripState($command, $expectedState, $properties, $commandClass);
 
         return $command;
+    }
+
+    /** @param array<string, mixed> $data */
+    private function encodeData(array $data): string
+    {
+        try {
+            $payload = json_encode([
+                self::FORMAT_KEY => self::FORMAT_VERSION,
+                self::DATA_KEY => $data,
+            ], JSON_THROW_ON_ERROR | JSON_PRESERVE_ZERO_FRACTION);
+            $encodedData = $this->payloadData(
+                json_decode($payload, true, 512, JSON_THROW_ON_ERROR),
+            );
+        } catch (JsonException $exception) {
+            throw new TransportException(
+                "Failed to serialize command: {$exception->getMessage()}",
+                previous: $exception,
+            );
+        }
+
+        if (!$this->valuesEquivalent($data, $encodedData)) {
+            throw new TransportException(
+                'JSON encoding changed command state; configure PHP for lossless JSON float serialization or register a custom serializer.',
+            );
+        }
+
+        return $payload;
     }
 
     /**
@@ -620,12 +637,10 @@ final readonly class ActorAwareJsonCommandSerializer implements CommandSerialize
             return false;
         }
 
-        if (is_int($expected) && is_float($actual)) {
-            return (float) $expected === $actual;
-        }
-
-        if (is_float($expected) && is_int($actual)) {
-            return $expected === (float) $actual;
+        if (is_float($expected) || is_float($actual)) {
+            return is_float($expected)
+                && is_float($actual)
+                && pack('E', $expected) === pack('E', $actual);
         }
 
         if (is_array($expected) && is_array($actual)) {
@@ -747,7 +762,7 @@ final readonly class ActorAwareJsonCommandSerializer implements CommandSerialize
             'true' => $value === true,
             'false' => $value === false,
             'int' => is_int($value),
-            'float' => is_float($value) || is_int($value),
+            'float' => is_float($value),
             'string' => is_string($value),
             'array' => is_array($value),
             'iterable' => is_iterable($value),
@@ -770,7 +785,7 @@ final readonly class ActorAwareJsonCommandSerializer implements CommandSerialize
                 'Failed to instantiate command %s: %s',
                 $reflection->getName(),
                 $exception->getMessage(),
-            ), previous: $exception);
-        }
+            ), previous: $exception,
+        );
     }
 }
