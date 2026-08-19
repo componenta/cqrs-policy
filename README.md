@@ -140,6 +140,8 @@ Serialization semantics:
 - an identity repository result must implement `IdentityInterface` and retain the requested UUID;
 - the restored command must retain the exact actor instance produced by restoration;
 - constructor reconstruction must not change other serialized command state;
+- JSON integer and float are distinct wire types; floats preserve fractional form and signed zero, and a JSON integer is not accepted for a `float` constructor field;
+- after encoding, the serializer decodes its own envelope and rejects any state changed by PHP JSON precision settings;
 - recursive/excessively deep arrays, unknown fields, executable callables, hooked/virtual properties, private state including inherited private state, dynamic properties, and unsupported actor kinds fail closed;
 - dynamic runtime state is rejected both before serialization and after command reconstruction instead of being silently dropped;
 - non-actor payload values and nesting are validated before command construction.
