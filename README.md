@@ -152,6 +152,26 @@ The command worker and envelope remain generic and policy-agnostic: deserializat
 
 ## Middleware placement
 
-Authorization must occur before infrastructure side effects that are only valid for an authorized command. With CQRS v4, the built-in/companion execution middleware declare hard order constraints so `EventMiddleware`, transport v5, lock v3, retry v3, and transaction v3 cannot be placed before command policy when policy is present. Transport v5 additionally executes before execution-only event/lock/retry/transaction middleware on the producer side.
+Command middleware order is application configuration; `cqrs-policy` does not force its position relative to event, transport, lock, retry, transaction, or custom middleware.
 
-Older supported CQRS generations do not have the v4 `MiddlewareOrder` contract, so applications using those released generations must preserve policy placement through configuration. `ATTR_SKIP_POLICY` remains a trusted application-controlled dispatch flag and is never transported by the standard operation-context serializer.
+Placing command policy outside infrastructure side effects is a common choice when those effects should occur only for authorized commands. For example:
+
+```text
+PolicyMiddleware
+  TransportMiddleware
+    handler
+```
+
+authorizes before enqueue, while:
+
+```text
+TransportMiddleware
+  PolicyMiddleware
+    handler
+```
+
+queues first and performs policy evaluation only when the command later reaches synchronous execution, such as worker redispatch. Both are valid pipeline topologies; the application chooses which boundary is authoritative.
+
+The same principle applies to events, locking, retry, and transactions. Their placement changes behavior and must be selected deliberately by application configuration.
+
+`ATTR_SKIP_POLICY` remains a trusted application-controlled dispatch flag and is never transported by the standard operation-context serializer.
