@@ -16,6 +16,21 @@ return [
 ];
 ```
 
+The policy provider registers middleware **services**, but does not insert them into the CQRS pipelines because middleware composition and ordering belong to the application. Add the command and/or query middleware explicitly where policy enforcement is required:
+
+```php
+use Componenta\CQRS\ConfigKey;
+
+return [
+    ConfigKey::COMMAND_MIDDLEWARES => [
+        Componenta\CQRS\Command\Middleware\PolicyMiddleware::class,
+    ],
+    ConfigKey::QUERY_MIDDLEWARES => [
+        Componenta\CQRS\Query\Middleware\PolicyMiddleware::class,
+    ],
+];
+```
+
 The core package exposes:
 
 - `Componenta\CQRS\Command\Middleware\PolicyMiddleware`
@@ -140,7 +155,7 @@ Serialization semantics:
 - an identity repository result must implement `IdentityInterface` and retain the requested UUID;
 - the restored command must retain the exact actor instance produced by restoration;
 - constructor reconstruction must not change other serialized command state;
-- JSON integer and float are distinct wire types; floats preserve fractional form and signed zero, and a JSON integer is not accepted for a `float` constructor field;
+- JSON integer and float are distinct wire types; floats preserve fractional form and signed zero, a JSON integer is not accepted for a `float` constructor field, and integer tokens outside the PHP integer range are rejected instead of being coerced to float;
 - after encoding, the serializer decodes its own envelope and rejects any state changed by PHP JSON precision settings;
 - recursive/excessively deep arrays, unknown fields, executable callables, hooked/virtual properties, private state including inherited private state, dynamic properties, and unsupported actor kinds fail closed;
 - dynamic runtime state is rejected both before serialization and after command reconstruction instead of being silently dropped;
