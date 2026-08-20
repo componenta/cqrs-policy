@@ -104,6 +104,19 @@ it('rejects a JSON integer for an actor-aware float field', function (): void {
     ))->toThrow(TransportException::class, 'must match float; int given');
 });
 
+it('rejects out-of-range JSON integers before PHP coerces actor-aware payloads to float', function (): void {
+    $outOfRange = (string) PHP_INT_MAX . '0';
+    $payload = sprintf(
+        '{"__componenta_cqrs":2,"data":{"actor":{"type":"guest"},"value":%s}}',
+        $outOfRange,
+    );
+
+    expect(fn() => actorAwareNumericSerializer()->deserialize(
+        $payload,
+        ActorAwareMixedNumericCommand::class,
+    ))->toThrow(TransportException::class, 'integer outside the PHP integer range');
+});
+
 it('rejects actor-aware numeric type mutation for mixed state', function (): void {
     expect(fn() => actorAwareNumericSerializer()->deserialize(
         actorAwareNumericPayload('value', 1),
