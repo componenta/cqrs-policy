@@ -16,9 +16,25 @@ jobs:
       fail-fast: false
       max-parallel: 1
       matrix:
-        php: ['8.4', '8.5']
-        cqrs: ['2.0.0', '3.0.0']
-        transport: ['4.0.0', '5.0.0']
+        include:
+          - php: '8.4'
+            cqrs: '2.0.0'
+            transport: '4.0.0'
+          - php: '8.5'
+            cqrs: '2.0.0'
+            transport: '4.0.0'
+          - php: '8.4'
+            cqrs: '3.0.0'
+            transport: '4.0.0'
+          - php: '8.5'
+            cqrs: '3.0.0'
+            transport: '4.0.0'
+          - php: '8.4'
+            cqrs: '4.0.0'
+            transport: '5.0.0'
+          - php: '8.5'
+            cqrs: '4.0.0'
+            transport: '5.0.0'
     steps:
       - uses: actions/checkout@v7
       - name: Checkout policy v2 source
@@ -27,7 +43,14 @@ jobs:
           repository: componenta/policy
           ref: main
           path: .ci/policy
-      - name: Checkout transport v5 source
+      - name: Checkout current CQRS v4 source
+        if: matrix.cqrs == '4.0.0'
+        uses: actions/checkout@v7
+        with:
+          repository: componenta/cqrs
+          ref: main
+          path: .ci/cqrs
+      - name: Checkout current transport v5 source
         if: matrix.transport == '5.0.0'
         uses: actions/checkout@v7
         with:
@@ -46,6 +69,9 @@ jobs:
         shell: bash
         run: |
           composer config --json repositories.componenta-policy '{"type":"path","url":".ci/policy","options":{"versions":{"componenta/policy":"2.0.0"}}}'
+          if [ "${{ matrix.cqrs }}" = "4.0.0" ]; then
+            composer config --json repositories.componenta-cqrs '{"type":"path","url":".ci/cqrs","options":{"versions":{"componenta/cqrs":"4.0.0"}}}'
+          fi
           if [ "${{ matrix.transport }}" = "5.0.0" ]; then
             composer config --json repositories.componenta-cqrs-transport '{"type":"path","url":".ci/cqrs-transport","options":{"versions":{"componenta/cqrs-transport":"5.0.0"}}}'
           fi
