@@ -76,7 +76,10 @@ jobs:
             composer config --json repositories.componenta-cqrs-transport '{"type":"path","url":".ci/cqrs-transport","options":{"versions":{"componenta/cqrs-transport":"5.0.0"}}}'
           fi
       - name: Select dependency versions
-        run: composer require --dev --no-update "componenta/cqrs:${{ matrix.cqrs }}" "componenta/cqrs-transport:${{ matrix.transport }}"
+        shell: bash
+        run: |
+          composer require --no-update "componenta/cqrs:${{ matrix.cqrs }}"
+          composer require --dev --no-update "componenta/cqrs-transport:${{ matrix.transport }}"
       - name: Install dependency matrix
         shell: bash
         env:
