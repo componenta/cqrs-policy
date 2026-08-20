@@ -18,6 +18,7 @@ jobs:
       matrix:
         php: ['8.4', '8.5']
         cqrs: ['2.0.0', '3.0.0']
+        transport: ['4.0.0', '5.0.0']
     steps:
       - uses: actions/checkout@v7
       - name: Checkout policy v2 source
@@ -26,7 +27,8 @@ jobs:
           repository: componenta/policy
           ref: main
           path: .ci/policy
-      - name: Checkout composite-capable transport source
+      - name: Checkout transport v5 source
+        if: matrix.transport == '5.0.0'
         uses: actions/checkout@v7
         with:
           repository: componenta/cqrs-transport
@@ -44,9 +46,11 @@ jobs:
         shell: bash
         run: |
           composer config --json repositories.componenta-policy '{"type":"path","url":".ci/policy","options":{"versions":{"componenta/policy":"2.0.0"}}}'
-          composer config --json repositories.componenta-cqrs-transport '{"type":"path","url":".ci/cqrs-transport","options":{"versions":{"componenta/cqrs-transport":"4.0.0"}}}'
-      - name: Select CQRS version
-        run: composer require --no-update "componenta/cqrs:${{ matrix.cqrs }}"
+          if [ "${{ matrix.transport }}" = "5.0.0" ]; then
+            composer config --json repositories.componenta-cqrs-transport '{"type":"path","url":".ci/cqrs-transport","options":{"versions":{"componenta/cqrs-transport":"5.0.0"}}}'
+          fi
+      - name: Select dependency versions
+        run: composer require --dev --no-update "componenta/cqrs:${{ matrix.cqrs }}" "componenta/cqrs-transport:${{ matrix.transport }}"
       - name: Install dependency matrix
         shell: bash
         env:
