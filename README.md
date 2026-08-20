@@ -77,7 +77,7 @@ return [
 ];
 ```
 
-The version requirement belongs to this optional provider, not the core package. Registering the transport integration with a transport version that lacks the current composite serializer API fails immediately with a clear configuration error.
+The version requirement belongs to this optional provider, not the core package. Registering the transport integration with a transport version that lacks the composite serializer API fails immediately with a clear configuration error.
 
 Bind an application implementation of:
 
@@ -152,6 +152,6 @@ The command worker and envelope remain generic and policy-agnostic: deserializat
 
 ## Middleware placement
 
-Place command policy before transport when enqueueing itself must be authorized. The transport worker does not contain or set a policy-specific skip constant. A trusted technical flow may still supply `PolicyMiddleware::ATTR_SKIP_POLICY` explicitly as application dispatch configuration, but ordinary worker execution re-evaluates the restored command actor.
+Authorization must occur before infrastructure side effects that are only valid for an authorized command. With CQRS v4, the built-in/companion execution middleware declare hard order constraints so `EventMiddleware`, transport v5, lock v3, retry v3, and transaction v3 cannot be placed before command policy when policy is present. Transport v5 additionally executes before execution-only event/lock/retry/transaction middleware on the producer side.
 
-Middleware order is an application configuration contract; it is not an outbox or an authorization proof.
+Older supported CQRS generations do not have the v4 `MiddlewareOrder` contract, so applications using those released generations must preserve policy placement through configuration. `ATTR_SKIP_POLICY` remains a trusted application-controlled dispatch flag and is never transported by the standard operation-context serializer.
