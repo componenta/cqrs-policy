@@ -6,5 +6,5 @@ namespace Componenta\CQRS\Resolver;
 
 interface ActionIdResolverInterface
 {
-    public function resolve(object $subject): string ;
+    public function resolve(object $subject): string;
 }
