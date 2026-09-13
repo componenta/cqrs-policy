@@ -18,7 +18,7 @@ it('builds query policy middleware from typed ContainerValue entries', function 
         provider: new ArrayPolicyProvider(new FakeContainer(), []),
         behavior: MissingPolicyBehavior::DENY,
     );
-    $resolver = new class implements ActionIdResolverInterface {
+    $resolver = new class () implements ActionIdResolverInterface {
         public function resolve(object $subject): string
         {
             return $subject::class;
@@ -30,7 +30,7 @@ it('builds query policy middleware from typed ContainerValue entries', function 
 
     $middleware = (new PolicyMiddlewareFactory())(new ContainerValue(
         new FakeContainer($entries),
-        new Config([]),
+        new Config([], new \Componenta\Config\Environment([])),
     ));
 
     expect($middleware)->toBeInstanceOf(PolicyMiddleware::class);

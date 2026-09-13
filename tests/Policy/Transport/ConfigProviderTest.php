@@ -26,7 +26,7 @@ it('registers specialized and composite serializer factories only through the ex
 });
 
 it('builds the specialized serializer from ContainerValue', function (): void {
-    $repository = new class implements ActorRepositoryInterface {
+    $repository = new class () implements ActorRepositoryInterface {
         public function findByUuid(UuidInterface $uuid): ?object
         {
             return null;
@@ -36,7 +36,7 @@ it('builds the specialized serializer from ContainerValue', function (): void {
         new FakeContainer([
             ActorRepositoryInterface::class => $repository,
         ]),
-        new Config([]),
+        new Config([], new \Componenta\Config\Environment([])),
     );
 
     $serializer = (new ActorAwareJsonCommandSerializerFactory())($container);
@@ -45,7 +45,7 @@ it('builds the specialized serializer from ContainerValue', function (): void {
 });
 
 it('builds the default ordered composite with actor-aware serializer before JSON fallback', function (): void {
-    $repository = new class implements ActorRepositoryInterface {
+    $repository = new class () implements ActorRepositoryInterface {
         public function findByUuid(UuidInterface $uuid): ?object
         {
             return null;
@@ -56,7 +56,7 @@ it('builds the default ordered composite with actor-aware serializer before JSON
         new FakeContainer([
             ActorAwareJsonCommandSerializer::class => $actorAware,
         ]),
-        new Config([]),
+        new Config([], new \Componenta\Config\Environment([])),
     );
 
     $serializer = (new CompositeCommandSerializerFactory())($container);

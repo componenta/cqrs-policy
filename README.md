@@ -157,8 +157,9 @@ Serialization semantics:
 - constructor reconstruction must not change other serialized command state;
 - JSON integer and float are distinct wire types; floats preserve fractional form and signed zero, a JSON integer is not accepted for a `float` constructor field, and integer tokens outside the PHP integer range are rejected instead of being coerced to float;
 - after encoding, the serializer decodes its own envelope and rejects any state changed by PHP JSON precision settings;
-- recursive/excessively deep arrays, unknown fields, executable callables, hooked/virtual properties, private state including inherited private state, dynamic properties, and unsupported actor kinds fail closed;
-- dynamic runtime state is rejected both before serialization and after command reconstruction instead of being silently dropped;
+- recursive/excessively deep arrays, unknown fields, executable callables, hooked/virtual properties, private state including inherited private state, internal PHP classes or ancestors other than `stdClass`, dynamic properties, and unsupported actor kinds fail closed;
+- dynamic runtime state and PHP references in command properties or array elements are rejected both before serialization and after command reconstruction;
+- arrays whose internal pointer or next integer append index would change through JSON are rejected, including after reconstruction; validation leaves the original arrays unchanged;
 - non-actor payload values and nesting are validated before command construction.
 
 The actor UUID is a persistence reference, not an authentication credential. The standard integration assumes queued payloads originate from trusted producers and are protected against unauthorized modification. If that assumption does not hold, integrity protection must cover the complete envelope/payload rather than only the actor reference.

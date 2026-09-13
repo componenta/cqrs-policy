@@ -42,8 +42,11 @@ final readonly class ActorAwareJsonCommandSerializer implements CommandSerialize
     private const string ACTOR_TYPE_GUEST = 'guest';
     private const string ACTOR_TYPE_IDENTITY = 'identity';
 
-    public function __construct(private ActorRepositoryInterface $actors) {}
+    public function __construct(private ActorRepositoryInterface $actors)
+    {
+    }
 
+    /** @phpstan-assert-if-true ActorAwareInterface|class-string<ActorAwareInterface> $command */
     public function supportsCommand(object|string $command): bool
     {
         $class = is_object($command) ? $command::class : $command;
@@ -80,10 +83,6 @@ final readonly class ActorAwareJsonCommandSerializer implements CommandSerialize
         $decoded = $this->decodePayload($payload);
         $data = $this->payloadData($decoded);
         $reflection = new ReflectionClass($commandClass);
-
-        if (!$reflection->isInstantiable()) {
-            throw new TransportException("Command class '{$commandClass}' must be instantiable.");
-        }
 
         $parameters = $this->constructorParameters($reflection);
         $properties = $this->assertSupportedProperties($reflection, $parameters);
@@ -200,15 +199,14 @@ final readonly class ActorAwareJsonCommandSerializer implements CommandSerialize
                 return true;
             }
 
-            if (is_array($value) !== is_array($aware)) {
-                return true;
-            }
-
             if (!is_array($value)) {
+                if (is_array($aware)) {
+                    return true;
+                }
                 continue;
             }
 
-            if (array_keys($value) !== array_keys($aware)) {
+            if (!is_array($aware) || array_keys($value) !== array_keys($aware)) {
                 return true;
             }
 
@@ -248,7 +246,7 @@ final readonly class ActorAwareJsonCommandSerializer implements CommandSerialize
     }
 
     /**
-     * @param ReflectionClass<object> $reflection
+     * @param ReflectionClass<ActorAwareInterface> $reflection
      * @return array<string, mixed>
      */
     private function extractConstructorData(ReflectionClass $reflection, object $command): array
@@ -257,6 +255,7 @@ final readonly class ActorAwareJsonCommandSerializer implements CommandSerialize
         $properties = $this->assertSupportedProperties($reflection, $parameters);
         $this->assertActorShape($reflection, $parameters, $properties);
         $this->assertNoDynamicProperties($command, $properties, $reflection->getName());
+        $this->assertNoReferencedProperties($command);
         $data = [];
 
         foreach ($properties as $name => $property) {
@@ -272,6 +271,8 @@ final readonly class ActorAwareJsonCommandSerializer implements CommandSerialize
                     previous: $exception,
                 );
             }
+
+            $this->assertParameterType($value, $parameters[$name], $reflection->getName());
 
             if ($name === self::ACTOR_FIELD) {
                 if (!is_object($value)) {
@@ -318,11 +319,15 @@ final readonly class ActorAwareJsonCommandSerializer implements CommandSerialize
     }
 
     /**
-     * @param ReflectionClass<object> $reflection
+     * @param ReflectionClass<ActorAwareInterface> $reflection
      * @return array<string, ReflectionParameter>
      */
     private function constructorParameters(ReflectionClass $reflection): array
     {
+        if (!$reflection->isInstantiable()) {
+            throw new TransportException("Command class '{$reflection->getName()}' must be instantiable.");
+        }
+
         $constructor = $reflection->getConstructor();
         if ($constructor === null) {
             return [];
@@ -346,7 +351,7 @@ final readonly class ActorAwareJsonCommandSerializer implements CommandSerialize
         return $parameters;
     }
 
-    /** @param ReflectionClass<object> $reflection */
+    /** @param ReflectionClass<ActorAwareInterface> $reflection */
     private function assertSupportedParameterType(
         ReflectionParameter $parameter,
         ReflectionClass $reflection,
@@ -388,12 +393,22 @@ final readonly class ActorAwareJsonCommandSerializer implements CommandSerialize
     }
 
     /**
-     * @param ReflectionClass<object> $reflection
+     * @param ReflectionClass<ActorAwareInterface> $reflection
      * @param array<string, ReflectionParameter> $parameters
      * @return array<string, ReflectionProperty>
      */
     private function assertSupportedProperties(ReflectionClass $reflection, array $parameters): array
     {
+        for ($class = $reflection; $class !== false; $class = $class->getParentClass()) {
+            if ($class->isInternal() && $class->getName() !== \stdClass::class) {
+                throw new TransportException(sprintf(
+                    'Actor-aware JSON serialization does not support internal class "%s" on %s; register a custom serializer.',
+                    $class->getName(),
+                    $reflection->getName(),
+                ));
+            }
+        }
+
         $this->assertNoInheritedPrivateProperties($reflection);
         $properties = [];
 
@@ -444,7 +459,7 @@ final readonly class ActorAwareJsonCommandSerializer implements CommandSerialize
         return $properties;
     }
 
-    /** @param ReflectionClass<object> $reflection */
+    /** @param ReflectionClass<ActorAwareInterface> $reflection */
     private function assertNoInheritedPrivateProperties(ReflectionClass $reflection): void
     {
         $ancestor = $reflection->getParentClass();
@@ -470,7 +485,7 @@ final readonly class ActorAwareJsonCommandSerializer implements CommandSerialize
     }
 
     /**
-     * @param ReflectionClass<object> $reflection
+     * @param ReflectionClass<ActorAwareInterface> $reflection
      * @param array<string, ReflectionParameter> $parameters
      * @param array<string, ReflectionProperty> $properties
      */
@@ -606,6 +621,19 @@ final readonly class ActorAwareJsonCommandSerializer implements CommandSerialize
         return $actor;
     }
 
+    private function assertNoReferencedProperties(object $command): void
+    {
+        $values = get_object_vars($command);
+        foreach ($values as $name => $_) {
+            if (\ReflectionReference::fromArrayElement($values, $name) !== null) {
+                throw new TransportException(sprintf(
+                    'Command field "%s" contains a PHP reference; register a custom serializer.',
+                    $name,
+                ));
+            }
+        }
+    }
+
     private function assertJsonValue(mixed $value, string $path, int $depth = 0): void
     {
         if ($depth > self::MAX_NESTING_DEPTH) {
@@ -630,6 +658,13 @@ final readonly class ActorAwareJsonCommandSerializer implements CommandSerialize
 
         if (is_array($value)) {
             foreach ($value as $key => $item) {
+                if (\ReflectionReference::fromArrayElement($value, $key) !== null) {
+                    throw new TransportException(sprintf(
+                        'Command field "%s.%s" contains a PHP reference; register a custom serializer.',
+                        $path,
+                        $key,
+                    ));
+                }
                 $this->assertJsonValue($item, $path . '.' . $key, $depth + 1);
             }
 
@@ -653,6 +688,7 @@ final readonly class ActorAwareJsonCommandSerializer implements CommandSerialize
         array $properties,
         string $commandClass,
     ): void {
+        $this->assertNoReferencedProperties($command);
         foreach ($expectedState as $name => $expected) {
             $property = $properties[$name];
 
@@ -671,6 +707,10 @@ final readonly class ActorAwareJsonCommandSerializer implements CommandSerialize
                     sprintf('Cannot read restored command field "%s": %s', $name, $exception->getMessage()),
                     previous: $exception,
                 );
+            }
+
+            if (is_array($actual)) {
+                $this->assertJsonValue($actual, $name);
             }
 
             if (!$this->valuesEquivalent($expected, $actual)) {
@@ -696,7 +736,7 @@ final readonly class ActorAwareJsonCommandSerializer implements CommandSerialize
         }
 
         if (is_array($expected) && is_array($actual)) {
-            if (array_keys($expected) !== array_keys($actual)) {
+            if (array_keys($expected) !== array_keys($actual) || key($expected) !== key($actual)) {
                 return false;
             }
 
@@ -706,7 +746,15 @@ final readonly class ActorAwareJsonCommandSerializer implements CommandSerialize
                 }
             }
 
-            return true;
+            // Equal keys and values do not imply the same next integer index.
+            // Probe copies; an occupied PHP_INT_MAX makes appending impossible
+            // for both arrays, so no probe is needed in that case.
+            if (array_key_exists(PHP_INT_MAX, $expected)) {
+                return true;
+            }
+            $expected[] = null;
+            $actual[] = null;
+            return array_key_last($expected) === array_key_last($actual);
         }
 
         return $expected === $actual;
@@ -825,7 +873,7 @@ final readonly class ActorAwareJsonCommandSerializer implements CommandSerialize
     }
 
     /**
-     * @param ReflectionClass<object> $reflection
+     * @param ReflectionClass<ActorAwareInterface> $reflection
      * @param list<mixed> $arguments
      */
     private function instantiate(ReflectionClass $reflection, array $arguments): object

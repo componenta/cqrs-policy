@@ -5,13 +5,13 @@
     "license": "MIT",
     "require": {
         "php": ">=8.4",
-        "componenta/config": "^2.0.2",
-        "componenta/cqrs": "^2.0 || ^3.0 || ^4.0",
+        "componenta/config": "^3.0.0",
+        "componenta/cqrs": "^4.0.0",
         "componenta/identity": "^1.0",
-        "componenta/policy": "^2.0"
+        "componenta/policy": "^2.0.0"
     },
     "require-dev": {
-        "componenta/cqrs-transport": "^4.0 || ^5.0@dev",
+        "componenta/cqrs-transport": "^5.0.0",
         "pestphp/pest": "^4.0",
         "phpstan/phpstan": "^2.0"
     },
@@ -40,6 +40,9 @@
             "config-providers": [
                 "Componenta\\CQRS\\Policy\\ConfigProvider"
             ]
+        },
+        "branch-alias": {
+            "dev-main": "3.0.x-dev"
         }
     },
     "prefer-stable": true,

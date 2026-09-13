@@ -3,7 +3,6 @@
 declare(strict_types=1);
 
 use Componenta\CQRS\Command\CommandBusInterface;
-use Componenta\CQRS\Command\Metadata\CommandMetadataProviderInterface;
 use Componenta\CQRS\Command\Middleware\OperationHandlerInterface;
 use Componenta\CQRS\Command\Middleware\PolicyMiddleware;
 use Componenta\CQRS\Command\Middleware\TransportMiddleware;
@@ -11,6 +10,8 @@ use Componenta\CQRS\Command\Operation;
 use Componenta\CQRS\Command\OperationInterface;
 use Componenta\CQRS\Command\OperationResult;
 use Componenta\CQRS\Command\Transport\CommandWorker;
+use Componenta\CQRS\Command\Transport\JsonOperationContextSerializer;
+use Componenta\CQRS\Transport\Attribute\Async;
 use Componenta\CQRS\Command\Transport\Envelope;
 use Componenta\CQRS\Command\Transport\ExecutionMode;
 use Componenta\CQRS\Command\Transport\TransportInterface;
@@ -27,12 +28,14 @@ use Componenta\Policy\PolicyEnforcer;
 use Componenta\Policy\PolicyInterface;
 use Componenta\Policy\Provider\ArrayPolicyProvider;
 
+#[Async]
 final readonly class PolicyTransportWorkerCommand implements ActorAwareInterface
 {
     public function __construct(
         public object $actor,
         public int $id,
-    ) {}
+    ) {
+    }
 }
 
 final class PolicyTransportWorkerRepository implements ActorRepositoryInterface
@@ -40,7 +43,9 @@ final class PolicyTransportWorkerRepository implements ActorRepositoryInterface
     /** @var list<string> */
     public array $requested = [];
 
-    public function __construct(public ?object $actor) {}
+    public function __construct(public ?object $actor)
+    {
+    }
 
     public function findByUuid(UuidInterface $uuid): ?object
     {
@@ -71,7 +76,9 @@ final class PolicyTransportWorkerBus implements CommandBusInterface
     /** @var list<array<string, mixed>> */
     public array $attributes = [];
 
-    public function __construct(private readonly PolicyMiddleware $policy) {}
+    public function __construct(private readonly PolicyMiddleware $policy)
+    {
+    }
 
     public function dispatch(object $command, array $attributes = []): OperationInterface
     {
@@ -80,7 +87,7 @@ final class PolicyTransportWorkerBus implements CommandBusInterface
 
         return $this->policy->execute(
             Operation::create($command, $attributes),
-            new readonly class implements OperationHandlerInterface {
+            new readonly class () implements OperationHandlerInterface {
                 public function handle(OperationInterface $operation): OperationInterface
                 {
                     return $operation->withResult(new OperationResult('handled'));
@@ -100,7 +107,9 @@ final class PolicyTransportWorkerTransport implements TransportInterface
 
     private bool $delivered = false;
 
-    public function __construct(private readonly Envelope $envelope) {}
+    public function __construct(private readonly Envelope $envelope)
+    {
+    }
 
     public function send(Envelope $envelope, int $delay = 0): Envelope
     {
@@ -126,21 +135,6 @@ final class PolicyTransportWorkerTransport implements TransportInterface
     public function reject(Envelope $envelope): void
     {
         $this->rejected[] = $envelope;
-    }
-}
-
-final readonly class PolicyTransportWorkerMetadata implements CommandMetadataProviderInterface
-{
-    public function get(object|string $command, string $attribute): ?object
-    {
-        return null;
-    }
-
-    public function isKnown(object|string $command): bool
-    {
-        return is_object($command)
-            ? $command instanceof PolicyTransportWorkerCommand
-            : $command === PolicyTransportWorkerCommand::class;
     }
 }
 
@@ -175,7 +169,8 @@ it('restores the current repository actor before the worker redispatches through
         bus: $bus,
         serializer: $serializer,
         transport: $transport,
-        commands: new PolicyTransportWorkerMetadata(),
+        contextSerializer: new JsonOperationContextSerializer(),
+        transportName: 'default',
     );
 
     $processed = $worker->processOne();
@@ -216,7 +211,8 @@ it('round-trips a guest command through the worker without repository lookup', f
         bus: $bus,
         serializer: $serializer,
         transport: $transport,
-        commands: new PolicyTransportWorkerMetadata(),
+        contextSerializer: new JsonOperationContextSerializer(),
+        transportName: 'default',
     );
 
     expect($worker->processOne())->toBeTrue()
@@ -247,7 +243,8 @@ it('rejects the delivery without dispatch when an identity actor cannot be resto
         bus: $bus,
         serializer: $serializer,
         transport: $transport,
-        commands: new PolicyTransportWorkerMetadata(),
+        contextSerializer: new JsonOperationContextSerializer(),
+        transportName: 'default',
     );
 
     expect($worker->processOne())->toBeTrue()

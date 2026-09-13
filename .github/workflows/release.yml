@@ -18,18 +18,6 @@ jobs:
       matrix:
         include:
           - php: '8.4'
-            cqrs: '2.0.0'
-            transport: '4.0.0'
-          - php: '8.5'
-            cqrs: '2.0.0'
-            transport: '4.0.0'
-          - php: '8.4'
-            cqrs: '3.0.0'
-            transport: '4.0.0'
-          - php: '8.5'
-            cqrs: '3.0.0'
-            transport: '4.0.0'
-          - php: '8.4'
             cqrs: '4.0.0'
             transport: '5.0.0'
           - php: '8.5'
@@ -142,7 +130,7 @@ jobs:
           if (!is_array($config)) {
               throw new RuntimeException("Policy ConfigProvider did not return configuration.");
           }
-          if (class_exists(Componenta\CQRS\Command\Transport\CommandSerializerInterface::class, false)) {
+          if (interface_exists(Componenta\CQRS\Command\Transport\CommandSerializerInterface::class, false)) {
               throw new RuntimeException("Optional transport was loaded into the core-only install.");
           }
           '
@@ -175,27 +163,13 @@ jobs:
           '{"type":"path","url":".ci/policy","options":{"versions":{"componenta/policy":"2.0.0"}}}'
       - name: Select older optional transport
         run: composer require --dev --no-update componenta/cqrs-transport:3.0.0
-      - name: Install dependencies
-        run: composer update --with-all-dependencies --no-interaction --prefer-dist --no-progress
-      - name: Verify core works and optional integration rejects unsupported transport
+      - name: Reject an incompatible transport dependency graph
         shell: bash
         run: |
-          php -r '
-          require "vendor/autoload.php";
-          $config = (new Componenta\CQRS\Policy\ConfigProvider())();
-          if (!is_array($config)) {
-              throw new RuntimeException("Core policy ConfigProvider did not load.");
-          }
-          try {
-              (new Componenta\CQRS\Policy\Transport\ConfigProvider())();
-          } catch (LogicException $e) {
-              if (!str_contains($e->getMessage(), "4.0 or newer")) {
-                  throw $e;
-              }
-              exit(0);
-          }
-          throw new RuntimeException("Optional transport provider accepted an unsupported transport version.");
-          '
+          if composer update --with-all-dependencies --no-interaction --prefer-dist --no-progress; then
+            echo 'Composer accepted an incompatible transport generation.' >&2
+            exit 1
+          fi
 
   publish:
     if: github.event_name == 'push' && startsWith(github.event.head_commit.message, 'Release v')

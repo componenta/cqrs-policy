@@ -280,7 +280,7 @@ it('rejects recursive arrays before unbounded recursion can exhaust the process'
     );
 
     expect(fn() => $serializer->serialize(new PolicyTransportNestedArrayCommand($actor, $recursive)))
-        ->toThrow(TransportException::class, 'maximum JSON nesting depth');
+        ->toThrow(TransportException::class, 'PHP reference');
 });
 
 it('rejects excessive payload nesting before command construction', function (): void {
