@@ -8,7 +8,7 @@
         "componenta/config": "^3.0.0",
         "componenta/cqrs": "^4.0.0",
         "componenta/identity": "^1.0",
-        "componenta/policy": "^2.0.0"
+        "componenta/policy": "^3.0.0"
     },
     "require-dev": {
         "componenta/cqrs-transport": "^5.0.0",
@@ -42,7 +42,7 @@
             ]
         },
         "branch-alias": {
-            "dev-main": "3.0.x-dev"
+            "dev-main": "4.0.x-dev"
         }
     },
     "prefer-stable": true,
