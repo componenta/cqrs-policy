@@ -257,3 +257,24 @@ it('replaces spoofed command and operation policy context with the actual dispat
         expect($operation->attributes[PolicyMiddleware::ATTR_POLICY_CONTEXT])->toBe($attributes);
     }
 })->with([false, true]);
+
+
+it('resolves an explicit action identifier instead of the command class for policy selection', function (): void {
+    $command = new readonly class implements \Componenta\Policy\ActionIdAwareInterface {
+        public function __construct(public string $actionId = 'posts.publish') {}
+    };
+    $operation = Operation::create($command);
+    $middleware = new PolicyMiddleware(makeCommandPolicyEnforcer([
+        $command::class => new \Componenta\Policy\Policies\Deny('class policy must not be selected'),
+        'posts.publish' => new \Componenta\Policy\Policies\Allow(),
+    ]));
+
+    expect($middleware->execute($operation, commandPolicyTerminal())->result?->value)->toBe('handled');
+    $denied = new PolicyMiddleware(makeCommandPolicyEnforcer([
+        $command::class => new \Componenta\Policy\Policies\Allow(),
+        'posts.publish' => new \Componenta\Policy\Policies\Deny('explicit action denied'),
+    ]));
+    $handler = $this->createMock(OperationHandlerInterface::class);
+    $handler->expects($this->never())->method('handle');
+    expect(fn () => $denied->execute($operation, $handler))->toThrow(AccessDeniedException::class);
+});
