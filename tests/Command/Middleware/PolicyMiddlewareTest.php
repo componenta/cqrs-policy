@@ -202,3 +202,58 @@ it('rejects an invalid command policy context value', function (): void {
     expect(fn() => $middleware->execute($operation, commandPolicyTerminal()))
         ->toThrow(InvalidArgumentException::class, 'must be an array');
 });
+
+it('never bypasses denied command policies for non-boolean or false skip flags', function (mixed $flag): void {
+    $middleware = new PolicyMiddleware(makeCommandPolicyEnforcer([]));
+    $operation = Operation::create(new CommandPolicyPlainCommand(), [
+        PolicyMiddleware::ATTR_SKIP_POLICY => $flag,
+    ]);
+    $handler = new class implements OperationHandlerInterface {
+        public int $calls = 0;
+        public function handle(OperationInterface $operation): OperationInterface
+        {
+            ++$this->calls;
+            return $operation;
+        }
+    };
+
+    expect(fn () => $middleware->execute($operation, $handler))
+        ->toThrow(AccessDeniedException::class);
+    expect($handler->calls)->toBe(0);
+})->with([false, null, 0, 1, '1', 'true', ['truthy'], new stdClass()]);
+
+it('replaces spoofed command and operation policy context with the actual dispatch objects', function (bool $objectContext): void {
+    $captured = null;
+    $policy = new class($captured) implements PolicyInterface {
+        public function __construct(public ?ContextInterface &$captured) {}
+        public function enforce(object $actor, ContextInterface $context): true|DenyReason
+        {
+            $this->captured = $context;
+            return true;
+        }
+    };
+    $command = new CommandPolicyPlainCommand();
+    $spoofed = new stdClass();
+    $attributes = [
+        'tenant' => 'original',
+        PolicyMiddleware::ATTR_COMMAND => $spoofed,
+        PolicyMiddleware::ATTR_OPERATION => $spoofed,
+    ];
+    $context = $objectContext
+        ? new \Componenta\Policy\Context\Context($attributes)
+        : $attributes;
+    $operation = Operation::create($command, [PolicyMiddleware::ATTR_POLICY_CONTEXT => $context]);
+    $middleware = new PolicyMiddleware(makeCommandPolicyEnforcer([CommandPolicyPlainCommand::class => $policy]));
+    $result = $middleware->execute($operation, commandPolicyTerminal());
+
+    expect($result->result?->value)->toBe('handled')
+        ->and($captured?->getAttribute('tenant'))->toBe('original')
+        ->and($captured?->getAttribute(PolicyMiddleware::ATTR_COMMAND))->toBe($command)
+        ->and($captured?->getAttribute(PolicyMiddleware::ATTR_OPERATION))->toBe($operation);
+    if ($objectContext) {
+        expect($context->getAttribute(PolicyMiddleware::ATTR_COMMAND))->toBe($spoofed)
+            ->and($context->getAttribute(PolicyMiddleware::ATTR_OPERATION))->toBe($spoofed);
+    } else {
+        expect($operation->attributes[PolicyMiddleware::ATTR_POLICY_CONTEXT])->toBe($attributes);
+    }
+})->with([false, true]);

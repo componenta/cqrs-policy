@@ -165,3 +165,45 @@ it('rejects an invalid query policy context value', function (): void {
         static fn() => 'ok',
     ))->toThrow(InvalidArgumentException::class, 'must be an array');
 });
+
+it('never bypasses denied query policies for non-boolean or false skip flags', function (mixed $flag): void {
+    $middleware = new PolicyMiddleware(makeEnforcer([]));
+    $calls = 0;
+    $context = new Context([PolicyMiddleware::ATTR_SKIP_POLICY => $flag]);
+    expect(fn () => $middleware->handle(new FakeQuery(), $context, function () use (&$calls): string {
+        ++$calls;
+        return 'unexpected';
+    }))->toThrow(AccessDeniedException::class);
+    expect($calls)->toBe(0);
+})->with([false, null, 0, 1, '1', 'true', ['truthy'], new stdClass()]);
+
+it('replaces spoofed query context without modifying the supplied policy context', function (bool $objectContext): void {
+    $policy = new class implements Componenta\Policy\PolicyInterface {
+        public ?Componenta\Policy\Context\ContextInterface $context = null;
+        public function enforce(object $actor, Componenta\Policy\Context\ContextInterface $context): true|Componenta\Policy\Exception\DenyReason
+        {
+            $this->context = $context;
+            return true;
+        }
+    };
+    $query = new FakeQuery();
+    $spoofed = new stdClass();
+    $attributes = ['tenant' => 'original', PolicyMiddleware::ATTR_QUERY => $spoofed];
+    $policyContext = $objectContext
+        ? new Componenta\Policy\Context\Context($attributes)
+        : $attributes;
+    $context = new Context([PolicyMiddleware::ATTR_POLICY_CONTEXT => $policyContext]);
+    $middleware = new PolicyMiddleware(makeEnforcer([FakeQuery::class => $policy]));
+
+    expect($middleware->handle($query, $context, static function ($actual, $received) use ($query, $context): string {
+        expect($actual)->toBe($query)->and($received)->toBe($context);
+        return 'allowed';
+    }))->toBe('allowed')
+        ->and($policy->context?->getAttribute('tenant'))->toBe('original')
+        ->and($policy->context?->getAttribute(PolicyMiddleware::ATTR_QUERY))->toBe($query);
+    if ($objectContext) {
+        expect($policyContext->getAttribute(PolicyMiddleware::ATTR_QUERY))->toBe($spoofed);
+    } else {
+        expect($context->getAttribute(PolicyMiddleware::ATTR_POLICY_CONTEXT))->toBe($attributes);
+    }
+})->with([false, true]);
