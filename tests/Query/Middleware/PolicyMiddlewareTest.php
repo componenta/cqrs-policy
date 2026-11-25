@@ -170,10 +170,12 @@ it('never bypasses denied query policies for non-boolean or false skip flags', f
     $middleware = new PolicyMiddleware(makeEnforcer([]));
     $calls = 0;
     $context = new Context([PolicyMiddleware::ATTR_SKIP_POLICY => $flag]);
-    expect(fn () => $middleware->handle(new FakeQuery(), $context, function () use (&$calls): string {
+    $next = static function () use (&$calls): string {
         ++$calls;
         return 'unexpected';
-    }))->toThrow(AccessDeniedException::class);
+    };
+    expect(fn () => $middleware->handle(new FakeQuery(), $context, $next))
+        ->toThrow(AccessDeniedException::class);
     expect($calls)->toBe(0);
 })->with([false, null, 0, 1, '1', 'true', ['truthy'], new stdClass()]);
 
