@@ -29,21 +29,21 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: componenta/policy
-          ref: main
+          ref: v3.0.0
           path: .ci/policy
-      - name: Checkout current CQRS v4 source
+      - name: Checkout released CQRS v4 source
         if: matrix.cqrs == '4.0.0'
         uses: actions/checkout@v7
         with:
           repository: componenta/cqrs
-          ref: main
+          ref: v4.0.0
           path: .ci/cqrs
-      - name: Checkout current transport v5 source
+      - name: Checkout released transport v5 source
         if: matrix.transport == '5.0.0'
         uses: actions/checkout@v7
         with:
           repository: componenta/cqrs-transport
-          ref: main
+          ref: v5.0.0
           path: .ci/cqrs-transport
       - uses: shivammathur/setup-php@v2
         with:
@@ -100,7 +100,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: componenta/policy
-          ref: main
+          ref: v3.0.0
           path: .ci/policy
       - uses: shivammathur/setup-php@v2
         with:
@@ -147,7 +147,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: componenta/policy
-          ref: main
+          ref: v3.0.0
           path: .ci/policy
       - uses: shivammathur/setup-php@v2
         with:
