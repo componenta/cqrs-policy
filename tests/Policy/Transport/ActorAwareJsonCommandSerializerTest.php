@@ -400,3 +400,52 @@ it('rejects executable and non-stored command shapes without invoking hooks', fu
         new PolicyTransportPrivateStateCommand($actor, 'secret'),
     ))->toThrow(TransportException::class, 'to be public');
 });
+
+
+it('restores optional actor-aware command defaults without treating a missing actor or required field as optional', function (): void {
+    $repository = new PolicyTransportActorRepository(null);
+    $serializer = new ActorAwareJsonCommandSerializer($repository);
+    $restored = $serializer->deserialize(actorAwarePayload([
+        'actor' => ['type' => 'guest'],
+        'id' => 42,
+    ]), PolicyTransportActorCommand::class);
+
+    expect($restored->actor)->toBeInstanceOf(Guest::class)
+        ->and($restored->id)->toBe(42)
+        ->and($restored->tags)->toBe([])
+        ->and(fn () => $serializer->deserialize(actorAwarePayload([
+            'actor' => ['type' => 'guest'],
+        ]), PolicyTransportActorCommand::class))->toThrow(TransportException::class, "Missing required parameter 'id'")
+        ->and(fn () => $serializer->deserialize(actorAwarePayload([
+            'id' => 42,
+        ]), PolicyTransportActorCommand::class))->toThrow(TransportException::class, 'missing its actor reference')
+        ->and($repository->requested)->toBe([]);
+});
+
+it('rejects unknown actor-aware command fields without consulting the actor repository', function (): void {
+    $actor = new PolicyTransportIdentityActor(1);
+    $repository = new PolicyTransportActorRepository($actor);
+    $serializer = new ActorAwareJsonCommandSerializer($repository);
+
+    expect(fn () => $serializer->deserialize(actorAwarePayload([
+        'actor' => identityActorReference($actor),
+        'id' => 42,
+        'administrator' => true,
+    ]), PolicyTransportActorCommand::class))->toThrow(TransportException::class, 'unknown field(s): administrator')
+        ->and($repository->requested)->toBe([]);
+});
+
+it('rejects out-of-range numeric state before actor resolution', function (): void {
+    $actor = new PolicyTransportIdentityActor(1);
+    $repository = new PolicyTransportActorRepository($actor);
+    $serializer = new ActorAwareJsonCommandSerializer($repository);
+    $payload = sprintf(
+        '{"__componenta_cqrs":2,"data":{"actor":{"type":"identity","uuid":"%s"},"id":%s}}',
+        $actor->uuid->toString(),
+        (string) PHP_INT_MAX . '0',
+    );
+
+    expect(fn () => $serializer->deserialize($payload, PolicyTransportActorCommand::class))
+        ->toThrow(TransportException::class, 'integer outside the PHP integer range')
+        ->and($repository->requested)->toBe([]);
+});
