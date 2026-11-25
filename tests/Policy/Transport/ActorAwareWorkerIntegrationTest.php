@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Componenta\CQRS\Command\CommandBus;
 use Componenta\CQRS\Command\CommandBusInterface;
 use Componenta\CQRS\Command\Middleware\OperationHandlerInterface;
 use Componenta\CQRS\Command\Middleware\PolicyMiddleware;
@@ -15,6 +16,8 @@ use Componenta\CQRS\Transport\Attribute\Async;
 use Componenta\CQRS\Command\Transport\Envelope;
 use Componenta\CQRS\Command\Transport\ExecutionMode;
 use Componenta\CQRS\Command\Transport\TransportInterface;
+use Componenta\CQRS\Command\Transport\TransportRegistry;
+use Componenta\CQRS\Command\Metadata\ReflectionCommandMetadataProvider;
 use Componenta\CQRS\Policy\Transport\ActorAwareJsonCommandSerializer;
 use Componenta\CQRS\Policy\Transport\ActorRepositoryInterface;
 use Componenta\CQRS\Tests\Fixture\FakeActor;
@@ -253,4 +256,91 @@ it('rejects the delivery without dispatch when an identity actor cannot be resto
         ->and($repository->requested)->toBe([$actor->uuid->toString()])
         ->and($transport->acknowledged)->toBe([])
         ->and($transport->rejected)->toBe([$envelope]);
+});
+
+
+it('reauthorizes an enqueued command against the current actor and never executes it after access is revoked', function (): void {
+    $producerActor = new FakeActor(1);
+    $currentActor = new FakeActor(1);
+    $policy = new class implements PolicyInterface {
+        public bool $allowed = true;
+        public array $actors = [];
+        public function enforce(object $actor, ContextInterface $context): true|DenyReason
+        {
+            $this->actors[] = $actor;
+            return $this->allowed ? true : new DenyReason('Access revoked');
+        }
+    };
+    $middleware = new PolicyMiddleware(new PolicyEnforcer(
+        new ArrayPolicyProvider(new FakeContainer(), [
+            PolicyTransportWorkerCommand::class => $policy,
+        ]),
+    ));
+    $transport = new class implements TransportInterface {
+        public ?Envelope $delivery = null;
+        public array $acks = [];
+        public array $rejects = [];
+        public int $sends = 0;
+        public function send(Envelope $envelope, int $delay = 0): Envelope
+        {
+            ++$this->sends;
+            return $this->delivery = $envelope->withReceiptHandle('delivery-1');
+        }
+        public function get(): ?Envelope
+        {
+            $envelope = $this->delivery;
+            $this->delivery = null;
+            return $envelope;
+        }
+        public function ack(Envelope $envelope): void { $this->acks[] = $envelope; }
+        public function reject(Envelope $envelope): void { $this->rejects[] = $envelope; }
+    };
+    $registry = new TransportRegistry();
+    $registry->register('default', $transport);
+    $repository = new PolicyTransportWorkerRepository($currentActor);
+    $serializer = new ActorAwareJsonCommandSerializer($repository);
+    $contextSerializer = new JsonOperationContextSerializer(['trace']);
+    $terminal = new class implements OperationHandlerInterface {
+        public int $calls = 0;
+        public function handle(OperationInterface $operation): OperationInterface
+        {
+            ++$this->calls;
+            return $operation->withResult(new OperationResult('handled'));
+        }
+    };
+    $bus = new CommandBus($terminal, [
+        $middleware,
+        new TransportMiddleware(
+            $registry,
+            $serializer,
+            new ReflectionCommandMetadataProvider(),
+            $contextSerializer,
+        ),
+    ]);
+    $operation = $bus->dispatch(new PolicyTransportWorkerCommand($producerActor, 42), ['trace' => 'producer']);
+    $envelope = $transport->delivery;
+
+    expect($operation->result)->toBeNull()
+        ->and($transport->sends)->toBe(1)
+        ->and($terminal->calls)->toBe(0)
+        ->and($envelope)->toBeInstanceOf(Envelope::class)
+        ->and($envelope->operationId)->toBe($operation->id->toString());
+
+    $policy->allowed = false;
+    $worker = new CommandWorker(
+        bus: $bus,
+        serializer: $serializer,
+        contextSerializer: $contextSerializer,
+        transport: $transport,
+        transportName: 'default',
+    );
+
+    expect($worker->processOne())->toBeTrue()
+        ->and($worker->processOne())->toBeFalse()
+        ->and($policy->actors)->toBe([$producerActor, $currentActor])
+        ->and($repository->requested)->toBe([$producerActor->uuid->toString()])
+        ->and($terminal->calls)->toBe(0)
+        ->and($transport->sends)->toBe(1)
+        ->and($transport->acks)->toBe([])
+        ->and($transport->rejects)->toBe([$envelope]);
 });
