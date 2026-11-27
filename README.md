@@ -2,6 +2,16 @@
 
 Policy middleware integration for `componenta/cqrs` and `componenta/policy`.
 
+## Compatibility
+
+Version 4.1 supports CQRS 4 or 5, Config 3 or 4, and Policy 3 or 4. The PHP runtime
+floor remains 8.4. This update expands dependency compatibility without changing
+middleware APIs, actor selection, context propagation or serialization formats.
+
+The CQRS 5 / Config 4 / Policy 4 integration is verified with source registrations
+and the shared application build. Policy evaluation and actor-aware serialization
+remain runtime operations; this package does not depend on App or add a builder.
+
 ```bash
 composer require componenta/cqrs-policy
 ```

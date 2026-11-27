@@ -1,0 +1,19 @@
+name: Unified build integration
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: unified-build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  integration:
+    uses: componenta/skeleton/.github/workflows/build-integration.yml@refactor/unified-application-build-2026-11-27
+    with:
+      repository: ${{ github.repository }}
+      revision: ${{ github.sha }}
